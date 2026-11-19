@@ -27,6 +27,25 @@ def test_expand_and_display(project):
     assert skills.expand_invocation("/nonexistent", found) is None
 
 
+@pytest.mark.parametrize("url,name", [
+    ("https://github.com/me/team-skills.git", "team-skills"),
+    ("git@github.com:me/team-skills.git", "team-skills"),
+    (r"C:\Users\me\team-skills", "team-skills"),
+    ("/home/me/team-skills/", "team-skills"),
+])
+def test_add_repo_folder_names(url, name, monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["dest"] = cmd[-1]
+        raise RuntimeError("stop before cloning")
+
+    monkeypatch.setattr(skills.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="stop before cloning"):
+        skills.add_repo(url)
+    assert seen["dest"].replace("\\", "/").endswith("/" + name)
+
+
 @pytest.mark.parametrize("url", ["--upload-pack=touch /tmp/pwned", "https://x/..", "", "-oProxyCommand=x"])
 def test_add_repo_rejects_bad_urls(url):
     with pytest.raises(RuntimeError):

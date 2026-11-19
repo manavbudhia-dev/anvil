@@ -153,7 +153,8 @@ def add_repo(url: str) -> Path:
     if not url or url.startswith("-") or any(c in url for c in "\n\r\0"):
         raise RuntimeError("that doesn't look like a git URL")
     PERSONAL_DIR.mkdir(parents=True, exist_ok=True)
-    name = re.sub(r"\.git$", "", url.rstrip("/").split("/")[-1].split(":")[-1]) or "skills"
+    last = re.split(r"[/\\]", url.rstrip("/\\"))[-1]  # URL, scp-style git@host:repo, or a Windows path
+    name = re.sub(r"\.git$", "", last.split(":")[-1])  # "host:repo.git" (scp form without a slash)
     if not name or name in (".", "..") or "/" in name or "\\" in name:
         raise RuntimeError("can't work out a folder name from that URL")
     dest = PERSONAL_DIR / name

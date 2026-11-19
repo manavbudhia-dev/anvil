@@ -78,8 +78,10 @@ _PROTECTED = [
 ]
 
 
-def protected_path(path: Path) -> str | None:
-    p = str(path)
+def protected_path(path) -> str | None:
+    # Match on forward slashes on every OS: on Windows, str(path) uses backslashes and the rules
+    # (e.g. /.ssh/, /.config/anvil/) would silently never match.
+    p = str(path).replace("\\", "/")
     for rx, what in _PROTECTED:
         if rx.search(p):
             return f"edits {what}"

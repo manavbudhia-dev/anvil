@@ -32,6 +32,12 @@ def test_safe(cmd):
     assert not dangerous_command(cmd), (cmd, dangerous_command(cmd))
 
 
+def test_protected_paths_with_windows_separators():
+    assert protected_path(r"C:\Users\me\.ssh\authorized_keys")
+    assert protected_path(r"C:\Users\me\.config\anvil\config.json")
+    assert protected_path(r"C:\Users\me\project\main.py") is None
+
+
 def test_protected_paths():
     assert protected_path(Path("/etc/caddy/Caddyfile"))
     assert protected_path(Path("/home/a/.ssh/authorized_keys"))
