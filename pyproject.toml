@@ -1,0 +1,35 @@
+[project]
+name = "anvil-code"
+version = "0.2.0"
+description = "A coding agent for the terminal, desktop and phone that runs on your own API key or gateway"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=2.10.0",
+    "openai>=1.40",
+    "rich>=13.0",
+    "prompt_toolkit>=3.0",
+    "qrcode>=7.4",
+]
+
+[project.scripts]
+anvil = "anvil.cli:main"
+anvil-desktop = "anvil.gui.app:main"
+
+[project.optional-dependencies]
+desktop = ["pywebview>=5.0"]
+browser = ["playwright>=1.45"]
+dev = ["pytest>=8", "pyflakes>=3"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["anvil", "anvil.gui"]
+
+[tool.setuptools.package-data]
+"anvil.gui" = ["static/*"]
+anvil = ["builtin_skills/*/*"]

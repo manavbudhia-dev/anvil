@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Safely change the Caddy config. Installed root-owned by setup-agent-user.sh; the agent runs it with sudo.
+#
+#   sudo anvil-caddy-apply validate <file>   check a candidate Caddyfile, change nothing
+#   sudo anvil-caddy-apply diff <file>       show what would change
+#   sudo anvil-caddy-apply apply <file>      back up, validate, install, reload; roll back if reload fails
+#   sudo anvil-caddy-apply rollback          restore the most recent backup and reload
+#   sudo anvil-caddy-apply list              list backups
+#
+# The candidate file is read with the calling user's permissions, so this can't be used to read
+# files that user couldn't read anyway.
+set -Eeuo pipefail
+umask 077
+
+CADDYFILE="@CADDYFILE@"
+# The setup script replaces the placeholder above; the check is split so that replacement can't touch it.
+[ "$CADDYFILE" = "@CADDY""FILE@" ] && CADDYFILE="/etc/caddy/Caddyfile"
+CADDY_DIR="$(dirname "$CADDYFILE")"
+BACKUP_DIR="$CADDY_DIR/anvil-backups"
+KEEP=30
+LOG=/var/log/anvil-caddy.log
+CANDIDATE="$CADDY_DIR/.Caddyfile.anvil-candidate"
+
+log() { printf '[%s] %s: %s\n' "$(date '+%F %T')" "${SUDO_USER:-root}" "$*" | tee -a "$LOG" >&2; }
+die() { log "ERROR: $*"; exit 1; }
+[ "$(id -u)" -eq 0 ] || die "run with sudo"
+
+# One change at a time: concurrent runs would share the candidate file and backups.
+exec 8>"$CADDY_DIR/.anvil-caddy.lock"
+if command -v flock >/dev/null; then
+  flock -w 120 8 || die "another anvil-caddy-apply is still running"
+fi
+cleanup() { rm -f "$CANDIDATE"; }
+trap cleanup EXIT
+CADDY="$(command -v caddy)" || die "caddy is not installed"
+[ -f "$CADDYFILE" ] || die "$CADDYFILE not found"
+
+read_candidate() {
+  local src="$1"
+  [ -n "$src" ] || die "give the path of the new Caddyfile"
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    sudo -u "$SUDO_USER" -- cat -- "$src" > "$CANDIDATE" 2>/dev/null || die "can't read $src as $SUDO_USER"
+  else
+    cat -- "$src" > "$CANDIDATE" || die "can't read $src"
+  fi
+  [ -s "$CANDIDATE" ] || die "$src is empty"
+}
+
+validate_file() {
+  # Validate next to the real Caddyfile so relative imports resolve the same way.
+  local out; out="$(mktemp)"
+  if ! "$CADDY" validate --config "$1" --adapter caddyfile >"$out" 2>&1 8>&-; then
+    tail -15 "$out" >&2; rm -f "$out"
+    return 1
+  fi
+  rm -f "$out"
+}
+
+reload() {
+  # --force: without it, Caddy can skip a reload it thinks is unchanged and keep serving a
+  # half-applied config after a failed reload.
+  local out; out="$(mktemp)"
+  if "$CADDY" reload --config "$CADDYFILE" --adapter caddyfile --force >"$out" 2>&1 8>&-; then
+    rm -f "$out"; return 0
+  fi
+  if grep -q "connection refused\|no such host\|dial " "$out" && command -v systemctl >/dev/null \
+     && systemctl is-active --quiet caddy 2>/dev/null; then
+    rm -f "$out"; systemctl reload caddy 8>&-; return
+  fi
+  grep -o '"error":"[^"]*' "$out" | tail -1 | sed 's/"error":"/  caddy: /' >&2 || tail -3 "$out" >&2
+  rm -f "$out"; return 1
+}
+
+backup() {
+  mkdir -p "$BACKUP_DIR"
+  local dest
+  dest="$BACKUP_DIR/Caddyfile.$(date +%Y%m%d-%H%M%S)${1:+.$1}"
+  cp -p "$CADDYFILE" "$dest"
+  ls -1t "$BACKUP_DIR"/Caddyfile.* 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+  echo "$dest"
+}
+
+install_from() { cat "$1" > "$CADDYFILE"; }  # keeps the file's owner and mode
+
+# After a failed reload some Caddy versions leave listeners from the half-started config running
+# next to the old ones, so a full restart is the only way back to a clean state.
+restart_clean() {
+  if command -v systemctl >/dev/null && systemctl is-active --quiet caddy 2>/dev/null; then
+    systemctl restart caddy 8>&-
+  else
+    "$CADDY" stop >/dev/null 2>&1 8>&- || true
+    sleep 1
+    # 8>&-: the long-running Caddy process must not inherit (and hold forever) our lock file.
+    "$CADDY" start --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>&1 8>&-
+  fi
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  validate)
+    read_candidate "${1:-}"
+    validate_file "$CANDIDATE" || die "invalid config; nothing changed"
+    log "validated ${1} OK"
+    ;;
+  diff)
+    read_candidate "${1:-}"
+    diff -u "$CADDYFILE" "$CANDIDATE" || true
+    ;;
+  apply)
+    read_candidate "${1:-}"
+    validate_file "$CANDIDATE" || die "invalid config; nothing changed"
+    if cmp -s "$CANDIDATE" "$CADDYFILE"; then log "no changes"; exit 0; fi
+    saved="$(backup)"
+    log "backed up current config to $saved"
+    install_from "$CANDIDATE"
+    if reload; then
+      log "applied ${1} and reloaded Caddy"
+    else
+      log "reload failed; restoring $saved and restarting Caddy cleanly"
+      install_from "$saved"
+      if restart_clean; then
+        rm -f "$saved"  # nothing changed, so this backup isn't a rollback point
+      else
+        log "WARNING: restarting with the restored config also failed; check: systemctl status caddy"
+      fi
+      die "change rolled back; Caddy is on the previous config"
+    fi
+    ;;
+  rollback)
+    latest="$(ls -1t "$BACKUP_DIR"/Caddyfile.* 2>/dev/null | grep -v '\.before-rollback$' | head -1 || true)"
+    [ -n "$latest" ] || die "no backups in $BACKUP_DIR"
+    validate_file "$latest" || die "backup $latest doesn't validate; nothing changed"
+    saved="$(backup before-rollback)"
+    install_from "$latest"
+    if reload; then
+      log "rolled back to $latest (previous config saved as $saved)"
+      rm -f "$latest"
+    else
+      install_from "$saved"; restart_clean || true
+      die "reload failed; kept the current config"
+    fi
+    ;;
+  list)
+    ls -1t "$BACKUP_DIR"/Caddyfile.* 2>/dev/null || echo "no backups yet"
+    ;;
+  *)
+    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+    ;;
+esac

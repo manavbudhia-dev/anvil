@@ -1,0 +1,46 @@
+# Redeploys to your server on every push to main (and on demand from the Actions tab).
+# Needs these repository secrets (Settings > Secrets and variables > Actions):
+#   DEPLOY_HOST         server IP or hostname
+#   DEPLOY_USER         SSH user (opc on Oracle Linux, ubuntu on Ubuntu)
+#   DEPLOY_SSH_KEY      private key whose public half is in the server's ~/.ssh/authorized_keys
+#   DEPLOY_KNOWN_HOSTS  output of: ssh-keyscan -t ed25519 <server-ip>
+#   DEPLOY_PATH         folder of the app's git checkout on the server, e.g. /home/opc/myapp
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -z "$KNOWN_HOSTS" ]; then
+            echo "::error::Add the DEPLOY_KNOWN_HOSTS secret (run: ssh-keyscan -t ed25519 <server-ip>)"
+            exit 1
+          fi
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          APP_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ServerAliveInterval=30 "$USER@$HOST" \
+            "cd '$APP_PATH' && ./deploy.sh '$GITHUB_SHA'"

@@ -1,0 +1,48 @@
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pywebview playwright pyinstaller
+      - name: Build Anvil.exe
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed --name Anvil
+          --icon packaging\anvil.ico --paths .
+          --add-data "anvil\gui\static;anvil\gui\static"
+          --add-data "anvil\builtin_skills;anvil\builtin_skills"
+          --collect-all webview
+          --collect-all playwright
+          packaging\anvil_desktop.py
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Anvil.exe -ArgumentList "--browser","--port","8799" -PassThru
+          Start-Sleep -Seconds 15
+          $r = Invoke-WebRequest -Uri http://127.0.0.1:8799/ -UseBasicParsing
+          if ($r.Content -notmatch "Anvil") { throw "app page did not load" }
+          Stop-Process -Id $p.Id -Force
+      - name: Browser agent check (uses the Edge that ships with Windows)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Anvil.exe -ArgumentList "--browser-check","browser-check.txt" -PassThru -Wait
+          Get-Content browser-check.txt
+          if ($p.ExitCode -ne 0) { throw "browser agent check failed" }
+          if ((Get-Content browser-check.txt) -notmatch "Microsoft Edge") { throw "expected Microsoft Edge to be used" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Anvil-windows
+          path: dist/Anvil.exe
