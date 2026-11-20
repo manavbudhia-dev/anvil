@@ -50,6 +50,7 @@ TOOL_ARG_KEYS = {"load_skill": "name", "read_file": "path", "write_file": "path"
                  "browser_press": "key", "browser_scroll": "direction", "browser_history": "action",
                  "browser_tabs": "action", "browser_wait": "text"}
 UI_RESULT_LIMIT = 20_000
+MAX_BODY = 10 * 1024 * 1024  # largest JSON request body accepted
 
 
 def tool_label(name: str, args) -> str:
@@ -480,27 +481,43 @@ def make_handler(app: App):
 
         def _authed(self, query: dict) -> bool:
             token = self.headers.get("X-Anvil-Token") or (query.get("token") or [""])[0]
-            return self._host_ok() and secrets.compare_digest(token, app.token)
+            # compare_digest raises TypeError on non-ASCII str; compare bytes so a junk header is just a 401.
+            return self._host_ok() and secrets.compare_digest(token.encode("utf-8", "replace"), app.token.encode())
 
         def _send(self, code: int, body: bytes, ctype: str) -> None:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self._security_headers()
             self.end_headers()
             self.wfile.write(body)
+
+        def _security_headers(self) -> None:
+            # The UI can approve shell commands, so it must never be framed (clickjacking), and the
+            # token (sometimes in the query string) must never leak through a Referer header.
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
 
         def _json(self, data, code: int = 200) -> None:
             self._send(code, json.dumps(data).encode(), "application/json")
 
         def _body(self) -> dict:
-            n = int(self.headers.get("Content-Length") or 0)
-            if not n:
-                return {}
             try:
-                return json.loads(self.rfile.read(n))
-            except json.JSONDecodeError:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = 0
+            if n <= 0:
                 return {}
+            if n > MAX_BODY:
+                raise ValueError("Request body too large.")
+            try:
+                data = json.loads(self.rfile.read(n))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return {}
+            return data if isinstance(data, dict) else {}
 
         # routes -------------------------------------------------------------
         def do_GET(self):
@@ -552,9 +569,9 @@ def make_handler(app: App):
             url = urlparse(self.path)
             if not self._authed(parse_qs(url.query)):
                 return self._json({"error": "unauthorized"}, 401)
-            data = self._body()
             parts = url.path.strip("/").split("/")
             try:
+                data = self._body()
                 if url.path == "/api/config":
                     app.update_config(data)
                     return self._json({"config": app.config_view()})
@@ -616,6 +633,7 @@ def make_handler(app: App):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "keep-alive")
+            self._security_headers()
             self.end_headers()
             q = app.hub.subscribe()
             try:
