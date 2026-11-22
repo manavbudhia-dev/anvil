@@ -68,6 +68,7 @@ class Config:
     price_input: float = 0.0      # USD per 1M tokens, for cost estimates on gateway models
     price_output: float = 0.0
     web_search: bool = False
+    language: str = "english"         # reply language: "english" or "hinglish" (simple Hindi + English)
     last_root: str = ""
     permission_ceiling: str = ""      # "", "ask", "edits" or "auto": the most permissive mode allowed
     web_allowed_hosts: list[str] = field(default_factory=list)  # extra Host names for the web app

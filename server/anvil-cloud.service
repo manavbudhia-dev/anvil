@@ -13,6 +13,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=/home/ubuntu/.config/anvil/cloud-server
+# With browser chat on (anvil cloud chat on), the agent runs inside this service and can only write
+# where ReadWritePaths allows. Use this line instead (add your workspace), and drop
+# NoNewPrivileges=true if agent commands need sudo:
+# ReadWritePaths=/home/ubuntu/.config/anvil /home/ubuntu/projects
 UMask=0077
 
 [Install]

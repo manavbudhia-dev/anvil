@@ -11,6 +11,7 @@ from .config import Config, cost_breakdown
 from .browser import BROWSER_ACTIONS, BROWSER_TOOL_DEFS, BROWSER_TOOL_NAMES, Browser, browser_dangers
 from .browser import available as browser_available
 from .safety import allowed, dangerous_command, mode_ceiling, protected_path
+from .simple import language_of, style_prompt, t
 from .skills import discover, expand_invocation
 from .tools import MUTATING_TOOLS, TOOL_DEFS, ToolError, Tools, shell_name, validate_input, NO_WINDOW
 
@@ -308,6 +309,39 @@ class Agent:
             return False, []
         return True, []
 
+    @property
+    def system(self) -> str:
+        """The system prompt, plus the reply-language style when one is set (e.g. Hinglish)."""
+        return self._system + style_prompt(language_of(self.config))
+
+    @system.setter
+    def system(self, value: str) -> None:
+        self._system = value
+
+    @property
+    def mode(self) -> str:
+        """The permission mode: ask, edits (file edits run by themselves) or auto."""
+        return "auto" if self.auto_approve_all else "edits" if self.accept_edits else "ask"
+
+    def set_mode(self, mode: str) -> str:
+        """Switch the permission mode, capped at the ceiling. Returns the mode now in effect."""
+        if mode not in ("ask", "edits", "auto"):
+            mode = "ask"
+        if not allowed(mode, self.ceiling):
+            mode = self.ceiling
+        self.auto_approve_all = mode == "auto"
+        self.accept_edits = mode == "edits"
+        return mode
+
+    def _explain_always(self, name: str) -> None:
+        """Say plainly what "always" did, or that the permission limit keeps the question coming."""
+        lang = language_of(self.config)
+        is_edit = name in ("write_file", "edit_file")
+        if not allowed("edits" if is_edit else "auto", self.ceiling):
+            self.ui.notice(t(lang, "always_blocked", ceiling=self.ceiling))
+        else:
+            self.ui.notice(t(lang, "always_on_edit" if is_edit else "always_on_bash" if name == "bash" else "always_on_other"))
+
     def _needs_approval(self, name: str, args: dict) -> bool:
         return self._approval(name, args)[0]
 
@@ -331,7 +365,8 @@ class Agent:
             if decision == "always" and dangers:
                 decision = "yes"  # a destructive call is approved once, never for the session
             if decision == "always":
-                self.session_approved.add(name)
+                self.session_approved.update(("write_file", "edit_file") if name in ("write_file", "edit_file") else (name,))
+                self._explain_always(name)
             elif decision != "yes":
                 msg = "The user declined this tool call."
                 if isinstance(decision, str) and decision not in ("no", ""):

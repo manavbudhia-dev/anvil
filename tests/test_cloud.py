@@ -87,7 +87,7 @@ class Browser:
     def __init__(self, port):
         self.port, self.cookies = port, {}
 
-    def req(self, method, path, form=None, headers=None):
+    def req(self, method, path, form=None, headers=None, json_body=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         h = dict(headers or {})
         if self.cookies:
@@ -96,6 +96,9 @@ class Browser:
         if form is not None:
             body = urllib.parse.urlencode(form)
             h["Content-Type"] = "application/x-www-form-urlencoded"
+        if json_body is not None:
+            body = json.dumps(json_body)
+            h["Content-Type"] = "application/json"
         conn.request(method, path, body=body, headers=h)
         r = conn.getresponse()
         data = r.read().decode()
@@ -157,6 +160,11 @@ def test_google_login_and_web_settings(cloud):
     assert app.store.get_settings(OWNER)["api_key"] == "sk-1" and app.store.get_settings(OWNER)["model"] == "z"
     assert b.req("POST", "/settings", {**form, "csrf": "bad"})[0] == 403
     assert b.req("POST", "/settings", form, {"Origin": "https://evil.example"})[0] == 403
+    assert b.req("POST", "/settings", form, {"Sec-Fetch-Site": "cross-site", "Origin": "null"})[0] == 403
+    # What Chrome actually sends for a form on the page itself (regression: "That form expired").
+    assert b.req("POST", "/settings", {**form, "model": "from-chrome"},
+                 {"Sec-Fetch-Site": "same-origin", "Origin": "null"})[0] == 303
+    assert app.store.get_settings(OWNER)["model"] == "from-chrome"
     assert "sk-1" not in b.req("GET", "/")[2]  # the key is never echoed into the page
 
 
