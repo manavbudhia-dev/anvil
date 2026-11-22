@@ -517,8 +517,9 @@ body.panel-open #tpanel { display: flex; width: min(460px, 42vw); }
 <div class="overlay" id="settings">
   <div class="modal">
     <h2>Settings</h2>
-    <p class="sub">Connect Anvil to the Anthropic API or your own gateway. Saved on this computer only.</p>
+    <p class="sub" id="settings-sub">Connect Anvil to the Anthropic API or your own gateway. Saved on this computer only.</p>
     <div class="body">
+      <div class="field" id="f-cloud"><label>Anvil cloud</label><div id="cloud-box"></div><div class="help" id="cloud-help"></div></div>
       <div class="field">
         <label>API format</label>
         <div class="seg" id="prov-seg">
@@ -1130,13 +1131,60 @@ async function loadConnect() {
     $("#qr-url").textContent = (c.public_url || location.origin + "/");
   } catch {}
 }
+// ---------- Anvil cloud ----------
+let cloudPoll = null;
+function textEl(tag, cls, text) { const e = el(tag, cls); e.textContent = text; return e; }
+function renderCloud() {
+  const c = state.config.cloud || {}; const box = $("#cloud-box"); box.innerHTML = ""; const help = $("#cloud-help");
+  const login = c.login || {};
+  clearTimeout(cloudPoll);
+  if (c.email) {
+    const row = el("div"); row.style.cssText = "display:flex;gap:8px;align-items:center;justify-content:space-between";
+    row.appendChild(textEl("span", "", `Signed in as ${c.email}`));
+    const out = textEl("button", "btn", "Sign out"); out.onclick = cloudLogout; row.appendChild(out); box.appendChild(row);
+    help.textContent = `Settings below come from ${c.server} and are saved there, so every signed-in computer uses them. Your API key stays in memory here.`;
+    $("#settings-sub").textContent = "Connect Anvil to the Anthropic API or your own gateway. Synced through Anvil cloud.";
+    return;
+  }
+  $("#settings-sub").textContent = "Connect Anvil to the Anthropic API or your own gateway. Saved on this computer only.";
+  if (login.status === "pending") {
+    box.appendChild(textEl("div", "", "Confirm this code in the browser:"));
+    const code = textEl("div", "", login.user_code); code.style.cssText = "font:600 22px ui-monospace,monospace;letter-spacing:3px;margin:6px 0"; box.appendChild(code);
+    const a = textEl("a", "", "Open sign-in page"); a.href = login.verification_uri_complete; a.target = "_blank"; a.rel = "noopener"; box.appendChild(a);
+    help.textContent = "Waiting for approval…";
+    cloudPoll = setTimeout(refreshCloud, 2000);
+    return;
+  }
+  const row = el("div"); row.style.cssText = "display:flex;gap:8px";
+  const inp = el("input"); inp.type = "text"; inp.id = "cloud-server"; inp.placeholder = "anvil.example.com"; inp.spellcheck = false; inp.value = c.server || ""; inp.style.flex = "1";
+  const btn = textEl("button", "btn primary", "Sign in with Google"); btn.onclick = cloudLogin;
+  row.appendChild(inp); row.appendChild(btn); box.appendChild(row);
+  help.textContent = login.status === "error" ? `Sign-in failed: ${login.message}` : "Optional. Sign in to your own Anvil cloud server to use the provider, model and key saved there.";
+}
+async function refreshCloud() {
+  try {
+    const c = await api("/api/cloud"); const wasPending = (state.config.cloud || {}).login?.status === "pending";
+    state.config.cloud = c;
+    if (wasPending && c.login.status === "ok") { const st = await api("/api/state"); state.config = st.config; applyConfig(); toast("Signed in to Anvil cloud"); if ($("#settings").classList.contains("open")) openSettings(); return; }
+    if ($("#settings").classList.contains("open")) renderCloud();
+  } catch {}
+}
+async function cloudLogin() {
+  const server = $("#cloud-server").value.trim(); if (!server) { toast("Enter your Anvil cloud server address"); return; }
+  try { const info = await api("/api/cloud/login", { method: "POST", body: { server } }); state.config.cloud = { ...(state.config.cloud || {}), login: { status: "pending", ...info } }; if (IS_REMOTE) window.open(info.verification_uri_complete, "_blank", "noopener"); renderCloud(); }
+  catch (e) { toast(e.message); }
+}
+async function cloudLogout() {
+  try { const d = await api("/api/cloud/logout", { method: "POST", body: {} }); state.config = d.config; applyConfig(); openSettings(); toast("Signed out of Anvil cloud"); }
+  catch (e) { toast(e.message); }
+}
 function openSettings() {
-  loadConnect();
+  loadConnect(); renderCloud();
   const c = state.config;
   setProv(c.provider === "openai" ? "openai" : c.base_url ? "anthropic" : "official");
   $("#s-base").value = c.base_url || ""; $("#s-model").value = c.model; $("#s-key").value = "";
   $("#s-key").placeholder = c.key_set ? "•••••••• saved — leave empty to keep" : "Paste your API key";
-  $("#key-help").textContent = c.key_set ? "A key is saved. Enter a new one only to replace it." : "Stored in ~/.config/anvil/config.json, readable only by you.";
+  $("#key-help").textContent = c.key_set ? "A key is saved. Enter a new one only to replace it." : (c.cloud && c.cloud.email ? "Saved encrypted on your Anvil cloud server." : "Stored in ~/.config/anvil/config.json, readable only by you.");
   $("#s-compat").checked = c.compat_mode; $("#s-pin").value = c.price_input || 0; $("#s-pout").value = c.price_output || 0;
   $("#settings").classList.add("open"); setTimeout(() => (c.key_set ? $("#s-model") : $("#s-key")).focus(), 50);
 }

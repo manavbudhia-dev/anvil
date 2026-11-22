@@ -5,6 +5,7 @@
 - **Projects**: a folder with its own chat, instructions and memory. Create them in the desktop app sidebar or with `anvil project new`; open the project chat in the terminal with `anvil --project NAME`.
 - **Threads**: the project chat starts background agents for separate tasks. Each shows a live checklist and a status (working, needs you, done, failed, stopped) in the sidebar, opens in a side panel, can be steered while it runs, and reports its result back to the project chat.
 - **Decision cards**: an agent can ask you a multiple-choice question and wait for your pick. Open approval and decision cards now come back after reloading the app.
+- **Anvil cloud**: a self-hosted server (`anvil cloud serve`) where you sign in with Google and keep your provider, base URL, model, API key and settings, encrypted at rest. `anvil login <server>` (device-code sign-in) and the desktop app's Settings fetch them, so new machines need no `anvil --setup`. The key stays in memory on clients; sign-ins can be revoked per machine.
 
 ## 0.2.0
 

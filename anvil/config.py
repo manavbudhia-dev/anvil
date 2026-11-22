@@ -104,8 +104,16 @@ class Config:
         return cfg
 
     def save(self) -> None:
+        data = asdict(self)
+        # Settings fetched from Anvil cloud (API key included) stay in memory only: write back
+        # this machine's own values for those fields.
+        data.update(getattr(self, "_cloud_local", None) or {})
         with _SAVE_LOCK:
-            atomic_write_text(CONFIG_FILE, json.dumps(asdict(self), indent=2), private=True)
+            atomic_write_text(CONFIG_FILE, json.dumps(data, indent=2), private=True)
+
+    @property
+    def cloud_email(self) -> str:
+        return getattr(self, "_cloud_email", "") or ""
 
     def resolved_key(self) -> str | None:
         return (os.environ.get("ANVIL_API_KEY") or self.api_key

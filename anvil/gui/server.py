@@ -403,6 +403,7 @@ class App:
         # Extra host names allowed in the Host header (e.g. a Tailscale name). Anything else is
         # refused, which blocks DNS-rebinding attacks from websites open in a browser.
         self.allowed_hosts = {h.lower() for h in config.web_allowed_hosts}
+        self.cloud_login: dict = {"status": "idle"}
 
     def local_url(self) -> str:
         return f"http://127.0.0.1:{self.port}/"
@@ -664,7 +665,50 @@ class App:
                 "effort": c.effort, "reasoning_effort": c.reasoning_effort, "compat_mode": c.compat_mode,
                 "price_input": c.price_input, "price_output": c.price_output,
                 "key_set": bool(c.resolved_key()), "efforts": list(EFFORTS),
-                "price_known": price_for(c.model, c) is not None}
+                "price_known": price_for(c.model, c) is not None, "cloud": self.cloud_view()}
+
+    # Anvil cloud --------------------------------------------------------------
+    def cloud_view(self) -> dict:
+        from ..cloud.client import load_creds
+        creds = load_creds() or {}
+        return {"email": self.config.cloud_email, "server": creds.get("server", ""),
+                "saved_login": bool(creds), "login": self.cloud_login}
+
+    def _rebuild_backends(self) -> None:
+        for s in list(self.sessions.values()):
+            with s._busy_lock:
+                if s.running:
+                    s.backend_stale = True
+                else:
+                    s.agent.rebuild_backend()
+
+    def cloud_login_start(self, server: str) -> dict:
+        from ..cloud import client
+        start = client.start_device_login(server)
+        info = {k: start[k] for k in ("user_code", "verification_uri", "verification_uri_complete")}
+        self.cloud_login = {"status": "pending", **info}
+
+        def wait():
+            try:
+                email = client.poll_device_login(start)
+                client.apply_settings(self.config, client.fetch_settings())
+                self.config._cloud_email = email
+                self._rebuild_backends()
+                self.cloud_login = {"status": "ok", "email": email}
+            except client.CloudError as e:
+                self.cloud_login = {"status": "error", "message": str(e)}
+        threading.Thread(target=wait, daemon=True).start()
+        return info
+
+    def cloud_logout(self) -> None:
+        from ..cloud import client
+        client.logout()
+        for k, v in (getattr(self.config, "_cloud_local", None) or {}).items():
+            setattr(self.config, k, v)
+        self.config._cloud_local = {}
+        self.config._cloud_email = ""
+        self.cloud_login = {"status": "idle"}
+        self._rebuild_backends()
 
     def update_config(self, data: dict) -> None:
         c = self.config
@@ -691,13 +735,12 @@ class App:
                     pass
         if data.get("api_key"):
             c.api_key = data["api_key"].strip()
+        if c.cloud_email:
+            from ..cloud.client import push_settings
+            from ..cloud.server import SYNCED
+            push_settings({k: getattr(c, k) for k in SYNCED if k != "api_key" or data.get("api_key")})
         c.save()
-        for s in list(self.sessions.values()):
-            with s._busy_lock:
-                if s.running:
-                    s.backend_stale = True
-                else:
-                    s.agent.rebuild_backend()
+        self._rebuild_backends()
 
 
 def session_payload(s: Session) -> dict:
@@ -787,6 +830,8 @@ def make_handler(app: App):
             if url.path == "/api/connect":
                 return self._json({"url": app.connect_url(), "public_url": app.public_url(),
                                    "local_url": app.local_url()})
+            if url.path == "/api/cloud":
+                return self._json(app.cloud_view())
             if url.path == "/api/qr.svg":
                 return self._send(200, qr_svg(app.connect_url()), "image/svg+xml")
             if url.path == "/api/events":
@@ -822,6 +867,18 @@ def make_handler(app: App):
                 data = self._body()
                 if url.path == "/api/config":
                     app.update_config(data)
+                    return self._json({"config": app.config_view()})
+                if url.path == "/api/cloud/login":
+                    info = app.cloud_login_start(str(data.get("server") or ""))
+                    host = (self.headers.get("Host") or "").rsplit(":", 1)[0].lower()
+                    if host in ("127.0.0.1", "localhost"):  # the desktop app: open the system browser
+                        try:
+                            webbrowser.open(info["verification_uri_complete"])
+                        except Exception:
+                            pass
+                    return self._json(info)
+                if url.path == "/api/cloud/logout":
+                    app.cloud_logout()
                     return self._json({"config": app.config_view()})
                 if url.path == "/api/skills/sync":
                     s = app.sessions.get(data.get("session", ""))
