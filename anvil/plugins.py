@@ -214,6 +214,7 @@ def update(name: str) -> dict:
     if not info or not info.get("source"):
         raise RuntimeError("this plugin wasn't installed from a source Anvil can update from")
     dest = PLUGINS_DIR / name
+    _stop_connectors(name)
     backup = dest.with_name(f".{name}.old")
     if backup.exists():
         shutil.rmtree(backup)
@@ -233,9 +234,20 @@ def update(name: str) -> dict:
     return next(p for p in installed() if p["name"] == name)
 
 
+def _stop_connectors(name: str) -> None:
+    """Stop the plugin's running connector servers (they run from the plugin folder)."""
+    from .connectors import manager
+    prefix = re.sub(r"[^a-z0-9-]+", "-", f"{name}-".lower())
+    for cid in list(manager().clients):
+        if cid.startswith(prefix):
+            manager().forget(cid, wait=True)
+
+
 def set_enabled(name: str, enabled: bool) -> None:
     if not (PLUGINS_DIR / name).is_dir():
         raise RuntimeError(f"no plugin named {name!r}")
+    if not enabled:
+        _stop_connectors(name)
     with _LOCK:
         st = _load_state()
         st.setdefault(name, {})["enabled"] = bool(enabled)
@@ -247,6 +259,7 @@ def remove(name: str) -> None:
     if not NAME_RE.match(name):
         raise RuntimeError("bad plugin name")
     dest = PLUGINS_DIR / name
+    _stop_connectors(name)
     if dest.is_dir():
         shutil.rmtree(dest)
     with _LOCK:

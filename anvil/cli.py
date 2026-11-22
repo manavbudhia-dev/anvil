@@ -553,7 +553,6 @@ def main() -> None:
     from .extras_cli import COMMANDS, main as extras_main
     if len(sys.argv) > 1 and sys.argv[1] in COMMANDS:  # anvil connectors|plugins|schedule|artifacts|search
         sys.exit(extras_main(sys.argv[1:]))
-    parser = argparse.ArgumentParser(prog="anvil", description="A terminal coding agent on your own Anthropic API key.")
     from .cloud.cli import USAGE as CLOUD_USAGE, dispatch as cloud_dispatch
     rc = cloud_dispatch(sys.argv[1:])
     if rc is not None:

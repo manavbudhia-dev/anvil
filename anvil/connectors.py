@@ -405,19 +405,22 @@ class Manager:
             self._set(cid, state="ready", error="", tools=[t["name"] for t in tools])
             return client
 
-    def forget(self, cid: str) -> None:
+    def forget(self, cid: str, wait: bool = False) -> None:
         with self.lock:
             client = self.clients.pop(cid, None)
             self.tools.pop(cid, None)
             self.names = {k: v for k, v in self.names.items() if v[0] != cid}
             self.status.pop(cid, None)
         if client:
-            threading.Thread(target=client.close, daemon=True).start()
+            if wait:  # e.g. before deleting a plugin folder the server runs from (Windows locks it)
+                client.close()
+            else:
+                threading.Thread(target=client.close, daemon=True).start()
         self._set(cid, state="idle")
 
     def close_all(self) -> None:
         for cid in list(self.clients):
-            self.forget(cid)
+            self.forget(cid, wait=True)
 
     def tool_defs(self) -> list[dict]:
         enabled = [c for c in all_connectors() if c.get("enabled", True)]

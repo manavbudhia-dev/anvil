@@ -166,9 +166,6 @@ def handle(app, method: str, path: str, query: dict, data: dict):
                 plugins.update(name)
             else:
                 return 404, {"error": "not found"}
-            for c in list(connectors.manager().clients):
-                if c.startswith(name.lower()):
-                    connectors.manager().forget(c)
             app.refresh_skills()
             return 200, {"plugins": plugins.installed()}
         return 404, {"error": "not found"}
