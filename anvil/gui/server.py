@@ -512,6 +512,8 @@ def make_handler(app: App):
             if n <= 0:
                 return {}
             if n > MAX_BODY:
+                # The body is left unread, so drop the connection or its bytes get parsed as the next request.
+                self.close_connection = True
                 raise ValueError("Request body too large.")
             try:
                 data = json.loads(self.rfile.read(n))

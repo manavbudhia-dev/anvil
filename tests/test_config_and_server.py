@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import stat
 import threading
 import time
@@ -11,7 +12,7 @@ from fakes import text
 
 from anvil.config import CONFIG_FILE, SESSIONS_DIR, Config
 from anvil.fsutil import read_text
-from anvil.gui.server import TOKEN_FILE, App, Hub, load_token, start_server
+from anvil.gui.server import MAX_BODY, TOKEN_FILE, App, Hub, load_token, start_server
 
 
 # --- settings file ------------------------------------------------------------------
@@ -98,6 +99,32 @@ def test_auth_and_host_checks(app_server):
     assert call(srv, app, "GET", "/", token=False, host="myserver.tailnet.ts.net:443")[0] == 200
     assert call(srv, app, "GET", "/manifest.webmanifest", token=False)[0] == 200
     assert call(srv, app, "GET", "/api/state")[0] == 200
+
+
+def test_bad_requests_are_rejected_cleanly(app_server):
+    app, srv, _ = app_server
+    port = srv.server_address[1]
+
+    def raw(data: bytes) -> bytes:
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+            s.sendall(data)
+            out = b""
+            while chunk := s.recv(65536):
+                out += chunk
+        return out
+
+    host = f"Host: 127.0.0.1:{port}\r\n"
+    # Non-ASCII token is a plain 401, not a crash.
+    r = raw(f"GET /api/state HTTP/1.1\r\n{host}X-Anvil-Token: \xe9\r\nConnection: close\r\n\r\n".encode("latin-1"))
+    assert r.startswith(b"HTTP/1.1 401")
+    # A JSON body that is not an object is treated as empty.
+    assert call(srv, app, "POST", "/api/config", body=[])[0] == 200
+    # An oversized body is refused and the connection closed, so its unread bytes are never parsed as a request.
+    smuggled = f"GET /api/state HTTP/1.1\r\n{host}X-Anvil-Token: {app.token}\r\n\r\n"
+    r = raw((f"POST /api/config HTTP/1.1\r\n{host}X-Anvil-Token: {app.token}\r\n"
+             f"Content-Length: {MAX_BODY + 1}\r\n\r\n" + smuggled).encode())
+    assert r.startswith(b"HTTP/1.1 400") and r.count(b"HTTP/1.1 ") == 1
+    assert b"X-Frame-Options: DENY" in r and b"Referrer-Policy: no-referrer" in r
 
 
 def test_send_runs_a_turn_and_saves(app_server, project):
