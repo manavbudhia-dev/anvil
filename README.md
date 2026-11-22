@@ -277,9 +277,23 @@ Anvil has guard rails for running on a real server. Some are always on, and the 
 
 **Always on, in the terminal and the desktop app:**
 - **Destructive commands ask every time**, even in Bypass mode or after "always allow". This covers `rm -rf`, firewall changes (`ufw`, `firewall-cmd`, `iptables`, `nft`), `systemctl stop/disable`, reboots, disk tools, force-pushes, `git reset --hard`, dropping databases, `docker system prune`, `curl | sh`, editing `/etc`, SSH keys and sudoers, and changing Anvil's own settings. The terminal makes you type `yes`; the app shows a red card where Enter means Deny. In one-shot mode (`anvil -y "..."`) they're always refused.
+- **Commands are parsed, not pattern-matched.** Anvil reads each command the way the shell would, so quoting tricks (`r""m`, `$'\x72m'`, `{rm,-rf,/}`), variables set earlier in the line, wrappers (`sudo`, `env`, `xargs`, `timeout`, `find -exec`, `ssh host '...'`), nested shells (`bash -c`, `eval`, `cmd /c`, `powershell -Command` and `-EncodedCommand`), heredocs, and interpreter one-liners (`python -c "shutil.rmtree(...)"`, `node -e`, `perl -e`, `ruby -e`, `php -r`, `awk 'BEGIN{system(...)}'`) are all checked. Piping downloaded or decoded text into a shell or interpreter (`curl … | sh`, `base64 -d | bash`, `iwr … | iex`) always asks. cmd.exe and PowerShell commands (`del /s /q`, `rd /s`, `format`, `reg delete`, `Remove-Item -Recurse`, Defender and firewall changes) are covered on Windows.
+- **Protected paths on every OS**: system folders (`/etc`, `/usr`, `/boot`, `/System`, `C:\Windows`, `C:\Program Files`), startup locations (shell rc files, LaunchAgents, the Windows Startup folder, git hooks), SSH keys, cloud credentials, Anvil's own settings and the project's `.anvil/` folder. Writing to them from a command or an edit asks every time; reading keys and credentials asks too.
 - **Reloading Caddy or nginx without validating first** is flagged and needs a yes.
 - **Edits to the live Caddy config, system files and SSH config** always ask.
 - **Automatic backups:** before Anvil edits a config file (`Caddyfile`, `*.conf`, `*.service`, `.env`, YAML/TOML/INI) or any file outside the project, it saves a copy in `~/.config/anvil/backups/` and tells the model where.
+
+**Optional sandbox for commands.** With the sandbox on, the bash tool runs commands with only the project folder (and a private temp dir) writable, the rest of the disk read-only, and SSH keys, cloud credentials and Anvil's settings hidden. Turn it on in `~/.config/anvil/config.json` or per project in `.anvil/settings.json`:
+
+```json
+{"sandbox": {"mode": "auto", "network": true, "writable": ["~/.cache/pip"]}}
+```
+
+- `mode`: `off` (default), `auto`, or a backend: `bwrap` (bubblewrap) or `firejail` on Linux, `sandbox-exec` on macOS (built in), `docker`/`podman` anywhere (`"image"` picks the container image). `auto` tries them in that order for your OS.
+- `network: false` cuts network access.
+- A project's settings can turn the sandbox on or make it stricter, but can't turn off a sandbox your own config turned on, and its extra writable paths must stay inside the project.
+- Admins can force it in `/etc/anvil/policy.json` with `{"sandbox": "required"}`: commands are then refused when no backend works, instead of running unsandboxed. `ANVIL_SANDBOX=auto` turns it on for one run. `anvil --doctor` shows which backend is in use.
+- Permission prompts work the same with the sandbox on; it's an extra layer.
 
 **One-time setup on the server (as root):**
 
@@ -448,6 +462,9 @@ The tests use fake model servers, so they need no API key. Browser and web-app t
 - `anvil/plugins.py`, `anvil/schedules.py`, `anvil/artifacts.py`, `anvil/search.py`: plugins, scheduled tasks, artifacts, search
 - `anvil/extensions.py`: how connector and artifact tools plug into the agent; `anvil/extras_cli.py`: their terminal commands
 - `anvil/safety.py`: destructive-command detection, policy limits, backups
+- `anvil/safety.py`: destructive-command detection, protected paths, policy limits, backups
+- `anvil/shellparse.py`: the POSIX shell and cmd.exe parsers the safety checks use
+- `anvil/sandbox.py`: the optional command sandbox (bubblewrap, firejail, sandbox-exec, Docker/Podman)
 - `server/`: agent user setup, the Caddy helper and the Anvil cloud systemd unit
 - `anvil/cloud/`: Anvil cloud server (Google sign-in, encrypted settings) and the `anvil login` client
 - `android/`: Kotlin client and guide for Android apps

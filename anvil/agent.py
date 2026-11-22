@@ -256,7 +256,7 @@ class Agent:
 
     def dangers(self, name: str, args: dict) -> list[str]:
         if name == "bash":
-            return dangerous_command(args.get("command", ""))
+            return dangerous_command(args.get("command", ""), cwd=self.tools.root)
         if name in ("write_file", "edit_file"):
             why = protected_path(self.tools.resolve(args.get("path")))
             return [why] if why else []

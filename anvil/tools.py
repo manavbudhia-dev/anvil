@@ -254,9 +254,18 @@ class Tools:
             group = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
         else:
             group = {"start_new_session": True}
+        from .sandbox import SandboxUnavailable, wrap
+        try:
+            sandboxed = wrap(command, self.root)  # None when the sandbox is off
+        except SandboxUnavailable as e:
+            raise ToolError(f"not run: {e}")
         with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-            proc = subprocess.Popen(command, shell=True, cwd=self.root, stdin=subprocess.DEVNULL,
-                                    stdout=out, stderr=err, executable=shell_executable(), **group)
+            if sandboxed:
+                proc = subprocess.Popen(sandboxed, cwd=self.root, stdin=subprocess.DEVNULL,
+                                        stdout=out, stderr=err, **group)
+            else:
+                proc = subprocess.Popen(command, shell=True, cwd=self.root, stdin=subprocess.DEVNULL,
+                                        stdout=out, stderr=err, executable=shell_executable(), **group)
             timed_out = False
             try:
                 code = proc.wait(timeout=timeout)

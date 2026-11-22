@@ -163,6 +163,11 @@ def run_checks(config: Config, root: Path, include_browser: bool = True) -> tupl
         where = f" (from {POLICY_FILE})" if POLICY_FILE.exists() else ""
         checks.append(Check("Safety", "PASS", f"not root · permission limit '{ceiling}'{where}"))
 
+    from .sandbox import describe as sandbox_status
+    status, detail = sandbox_status(root)
+    checks.append(Check("Sandbox", status, detail,
+                        "" if status in ("PASS", "SKIP") else "Install bubblewrap (Linux) or Docker, or set sandbox mode to off"))
+
     # 8. Phone access
     if config.web_public_url:
         ts = shutil.which("tailscale")
