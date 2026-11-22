@@ -36,7 +36,8 @@ MAX_BODY = 64 * 1024
 # ceiling, browser binary, web app host names, auto-approve rules) stay local.
 SYNCED = ("provider", "base_url", "api_key", "model", "effort", "max_tokens", "compat_mode",
           "reasoning_effort", "price_input", "price_output", "web_search", "cache_ttl",
-          "cache_keepalive_minutes", "auto_compact_tokens", "openai_cache_control", "browser_enabled")
+          "cache_keepalive_minutes", "auto_compact_tokens", "openai_cache_control", "browser_enabled",
+          "language")
 _DEFAULTS = Config()
 
 
@@ -61,6 +62,8 @@ def clean_settings(data: dict) -> dict:
         out[k] = v
     if "provider" in out and out["provider"] not in ("anthropic", "openai"):
         out["provider"] = "openai" if "openai" in out["provider"].lower() else "anthropic"
+    if "language" in out and out["language"] not in ("english", "hinglish"):
+        out["language"] = "english"
     if "base_url" in out:
         out["base_url"] = out["base_url"].rstrip("/")
         if out.get("provider", data.get("_provider_hint")) == "anthropic" and out["base_url"].endswith("/v1"):
@@ -77,6 +80,9 @@ class CloudConfig:
     host: str = "127.0.0.1"
     port: int = 8787
     data_dir: str = ""                   # default: ~/.config/anvil/cloud-server
+    chat: bool = False                   # browser chat at /app/: runs the agent on this server
+    chat_workspace: str = ""             # folder new chat sessions start in (default: home folder)
+    chat_emails: list[str] = field(default_factory=list)  # who may use chat (default: allowed_emails)
 
     @classmethod
     def load(cls, path: Path) -> "CloudConfig":
@@ -102,6 +108,8 @@ class CloudConfig:
             out.append("google_client_id and google_client_secret are required")
         if not self.allowed_emails:
             out.append("allowed_emails is empty, so nobody could sign in")
+        if self.chat and not Path(self.chat_workspace or "~").expanduser().is_dir():
+            out.append(f"chat_workspace {self.chat_workspace} is not a folder")
         return out
 
 
@@ -148,7 +156,7 @@ class RateLimiter:
 
 
 class CloudApp:
-    def __init__(self, cfg: CloudConfig, store: Store | None = None, exchange=None):
+    def __init__(self, cfg: CloudConfig, store: Store | None = None, exchange=None, chat=None):
         self.cfg = cfg
         if store is None:
             data = cfg.data_path()
@@ -157,6 +165,10 @@ class CloudApp:
         self.exchange = exchange or (lambda code, verifier: google_exchange(cfg, code, verifier))
         self.limiter = RateLimiter(120)
         self.secure_cookie = cfg.public_url.startswith("https://")
+        if chat is None and cfg.chat:
+            from .chat import CloudChat
+            chat = CloudChat(cfg, store)
+        self.chat = chat
 
     def allowed(self, email: str) -> bool:
         return email.lower() in self.cfg.allowed_emails
@@ -198,6 +210,8 @@ def settings_form(s: dict, csrf: str) -> str:
                                 ("openai", "OpenAI format (chat completions gateway)")))
     efforts = "".join(f"<option{' selected' if s.get('effort', 'high') == e else ''}>{e}</option>"
                       for e in ("low", "medium", "high", "xhigh", "max"))
+    langs = "".join(f"<option value={v}{' selected' if s.get('language', 'english') == v else ''}>{t}</option>"
+                    for v, t in (("english", "English"), ("hinglish", "Hinglish (simple Hindi + English)")))
     return f"""<form method=post action=/settings class=card><h2>Settings</h2>
 <input type=hidden name=csrf value="{esc(csrf)}">
 <label>API format</label><select name=provider>{opts}</select>
@@ -205,6 +219,7 @@ def settings_form(s: dict, csrf: str) -> str:
 <label>Model</label><input name=model value="{esc(s.get('model', _DEFAULTS.model))}">
 <label>API key</label><input name=api_key type=password autocomplete=off placeholder="{esc(key_note)}">
 <label>Effort</label><select name=effort>{efforts}</select>
+<label>Reply language</label><select name=language>{langs}</select>
 <label>Reasoning effort (OpenAI format only, empty = don't send)</label><input name=reasoning_effort value="{esc(s.get('reasoning_effort', ''))}">
 <label>Price per 1M tokens, input / output (USD, for gateway models; 0 = unknown)</label>
 <div class=row style=margin-top:0><input name=price_input value="{esc(s.get('price_input', 0))}" style=flex:1><input name=price_output value="{esc(s.get('price_output', 0))}" style=flex:1></div>
@@ -245,7 +260,9 @@ def make_handler(app: CloudApp):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")
+            # Not "no-referrer": with it, browsers send "Origin: null" on form posts and the
+            # same-origin check below would refuse every form.
+            self.send_header("Referrer-Policy", "same-origin")
             self.send_header("Content-Security-Policy",
                              "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
             if app.secure_cookie:
@@ -315,6 +332,11 @@ def make_handler(app: CloudApp):
             return email if email and app.allowed(email) else None
 
         def _origin_ok(self) -> bool:
+            # Browsers say whether a request came from this site's own pages. Behind a proxy the
+            # public URL may differ in small ways (port, trailing slash), so trust this first.
+            site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+            if site:
+                return site in ("same-origin", "none")
             origin = self.headers.get("Origin")
             return not origin or origin.rstrip("/") == cfg.public_url
 
@@ -328,7 +350,39 @@ def make_handler(app: CloudApp):
         def do_HEAD(self):
             self.do_GET()
 
+        def _chat(self, method: str) -> bool:
+            """Hand /app requests to the browser chat. True if this request was one."""
+            from .chat import PREFIX
+            path = urllib.parse.urlparse(self.path).path
+            if not app.chat or not (path == PREFIX or path.startswith(PREFIX + "/")):
+                return False
+            email, csrf = self._web_user()
+            if method in ("GET", "HEAD") and path in (PREFIX, PREFIX + "/", PREFIX + "/index.html"):
+                if not email:
+                    self._redirect("/login?next=" + urllib.parse.quote(PREFIX + "/", safe=""))
+                    return True
+                if path == PREFIX:
+                    self._redirect(PREFIX + "/")
+                    return True
+            if not email:
+                if method not in ("GET", "HEAD"):
+                    self.close_connection = True
+                self._json({"error": "unauthorized"}, 401)
+                return True
+            if not app.chat.allowed(email):
+                self.close_connection = True
+                self._json({"error": f"{email} can't use chat on this server"}, 403)
+                return True
+            app.chat.handle(self, method, email, csrf)
+            return True
+
+        def do_DELETE(self):
+            if not self._chat("DELETE"):
+                self._json({"error": "not found"}, 404)
+
         def do_GET(self):
+            if self._chat(self.command):
+                return
             url = urllib.parse.urlparse(self.path)
             q = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
             if url.path == "/healthz":
@@ -353,6 +407,8 @@ def make_handler(app: CloudApp):
             self._json({"error": "not found"}, 404)
 
         def do_POST(self):
+            if self._chat("POST"):
+                return
             url = urllib.parse.urlparse(self.path)
             try:
                 if url.path.startswith("/api/"):
@@ -447,7 +503,9 @@ def make_handler(app: CloudApp):
             note = "<p class=mut style='color:var(--acc)'>Saved. Apps pick this up next time they start.</p>" if saved else ""
             head = (f"<div class=card><div class=row style=margin:0><div><h1>Anvil</h1><p class=mut>Signed in as {esc(email)}</p></div>"
                     f"<form method=post action=/logout><input type=hidden name=csrf value='{esc(csrf)}'><button>Sign out</button></form></div>{note}"
-                    f"<p class=mut>On a new machine: <code>anvil login {esc(cfg.public_url)}</code></p></div>")
+                    f"<p class=mut>On a new machine: <code>anvil login {esc(cfg.public_url)}</code></p>"
+                    + ("<div class=row><a class='btn primary' href=/app/>Open chat</a></div>"
+                       if app.chat and app.chat.allowed(email) else "") + "</div>")
             self._html("Anvil", head + settings_form(store.get_settings(email), csrf) + logins_table(store.list_logins(email), csrf))
 
         def _device_page(self, code: str):

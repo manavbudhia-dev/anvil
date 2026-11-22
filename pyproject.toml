@@ -1,6 +1,6 @@
 [project]
 name = "anvil-code"
-version = "0.2.0"
+version = "0.3.0"
 description = "A coding agent for the terminal, desktop and phone that runs on your own API key or gateway"
 requires-python = ">=3.10"
 dependencies = [
