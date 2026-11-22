@@ -70,6 +70,7 @@ const css = `
   .x-split:not(.viewing) .x-view { display: none; }
   .x-row { flex-wrap: wrap; }
   .x-row .acts { width: 100%; justify-content: flex-start; }
+  #x-nav button .k { display: none; }
 }`;
 document.head.appendChild(Object.assign(document.createElement("style"), { textContent: css }));
 
@@ -237,8 +238,9 @@ PANELS.connectors = async function () {
         r.querySelector(".nm").textContent = c.name; r.querySelector(".st").textContent = stateText(c) + (c.transport === "http" ? ` · ${c.url}` : ` · ${c.command}`);
         if (c.error && c.enabled) r.querySelector(".err").textContent = c.error;
         const acts = r.querySelector(".acts");
-        if (c.transport === "http" && c.auth === "oauth") acts.appendChild(c.signed_in ? btn("Sign out", "", () => act(api(`/api/connectors/${c.id}/logout`, { method: "POST" }), "Signed out").then(load)) : btn("Sign in", "primary", () => signIn(c)));
-        else if (c.state === "needs_auth" && c.transport === "http") acts.appendChild(btn("Sign in", "primary", () => signIn(c)));
+        const canSignIn = !CLOUD;  // the sign-in callback listens on localhost of the machine running Anvil
+        if (c.transport === "http" && c.auth === "oauth") acts.appendChild(c.signed_in ? btn("Sign out", "", () => act(api(`/api/connectors/${c.id}/logout`, { method: "POST" }), "Signed out").then(load)) : canSignIn ? btn("Sign in", "primary", () => signIn(c)) : el("span", "x-badge", "Sign in on the server"));
+        else if (c.state === "needs_auth" && c.transport === "http" && canSignIn) acts.appendChild(btn("Sign in", "primary", () => signIn(c)));
         acts.appendChild(btn("Test", "", async () => { r.querySelector(".x-dot").className = "x-dot connecting"; await act(api(`/api/connectors/${c.id}/test`, { method: "POST" })); load(); }));
         if (c.source === "user") {
           acts.appendChild(btn("Edit", "", () => { adding = { preset: data.presets.find((p) => p.id === c.preset) || data.presets.find((p) => p.id === (c.transport === "http" ? "custom-http" : "custom-stdio")), existing: c }; render(); }));
@@ -289,7 +291,9 @@ PANELS.connectors = async function () {
       const value = existing ? (fd.target === "env" && !fd.secret ? existing.env[fd.key] || "" : fd.target === "oauth_client_id" ? existing.client_id : "") : (fd.default || "");
       add("v:" + fd.key, fd.label, { secret: fd.secret, required: fd.required, value, help: saved ? "Saved. Leave empty to keep it." : fd.help });
     }
-    if (p.auth === "oauth" && !p.custom) {
+    if (p.auth === "oauth" && !p.custom && CLOUD) {
+      flds.appendChild(el("div", "x-note")).textContent = `Browser sign-in can't finish from here. Use a token if the service offers one, or add the connector here and run "anvil connectors login ${existing?.id || "<id>"}" in a terminal on the server.`;
+    } else if (p.auth === "oauth" && !p.custom) {
       flds.appendChild(el("div", "help", `After saving, click Sign in. Anvil opens ${esc(new URL(p.url).host)} in your browser and receives the result on ${esc(data.redirect_uri)} (sign in from the computer running Anvil).`));
       flds.lastChild.style.margin = "0 0 12px";
     }
@@ -299,7 +303,7 @@ PANELS.connectors = async function () {
       const payload = { id: existing?.id, preset: p.id, name: inputs.name.value, url: inputs.url?.value, command: inputs.command?.value, env: inputs.env ? inputs.env.value : undefined, values };
       const r = await act(api("/api/connectors", { method: "POST", body: payload }), existing ? "Saved" : "Connector added");
       adding = null; await load();
-      if (!existing && r.connector.transport === "http" && r.connector.auth === "oauth" && !r.connector.signed_in) signIn(r.connector);
+      if (!existing && !CLOUD && r.connector.transport === "http" && r.connector.auth === "oauth" && !r.connector.signed_in) signIn(r.connector);
     }));
     setTimeout(() => (inputs[p.custom ? "name" : Object.keys(inputs)[1]] || inputs.name).focus(), 30);
     return f;
@@ -404,7 +408,8 @@ PANELS.browser = async function () {
     r.innerHTML = `<span class="x-ico">${ico("globe", 14)}</span><div class="main"><div class="t"><span class="x-dot ${b.installed && b.enabled ? "ready" : b.installed ? "" : "error"}"></span>Browser tools</div><div class="d"></div></div><div class="acts"></div>`;
     r.querySelector(".d").textContent = !b.installed ? "Playwright isn't installed yet." : b.enabled ? "Available to new sessions." : "Turned off.";
     const acts = r.querySelector(".acts");
-    if (!b.installed) acts.appendChild(btn(b.installing ? "Installing…" : "Install", "primary", async () => { await act(api("/api/browser/install", { method: "POST" })); load(); }));
+    if (!b.installed && CLOUD) r.querySelector(".d").textContent += " Install it on the server with: anvil --install-browser";
+    else if (!b.installed) acts.appendChild(btn(b.installing ? "Installing…" : "Install", "primary", async () => { await act(api("/api/browser/install", { method: "POST" })); load(); }));
     else {
       acts.appendChild(btn("Test", "", async (e) => { e.target.textContent = "Testing…"; const x = await api("/api/browser/test", { method: "POST" }); toast(x.error || `Works: ${x.result}`); e.target.textContent = "Test"; }));
       acts.appendChild(sw(b.enabled, (on) => act(api("/api/browser", { method: "POST", body: { enabled: on } })).then(load)));
