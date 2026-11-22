@@ -97,6 +97,9 @@ def main() -> None:
     args = parser.parse_args()
 
     config = Config.load()
+    from ..cloud.client import load_cloud_settings
+    if load_cloud_settings(config, notice=say):
+        say(f"Settings from Anvil cloud ({config.cloud_email})")
     if args.browser_check:
         from ..browser import self_test
         try:

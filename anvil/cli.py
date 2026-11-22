@@ -236,13 +236,33 @@ def setup_wizard(config: Config) -> None:
     key = getpass.getpass("API key (leave empty to keep the current one): ").strip()
     if key:
         config.api_key = key
+    if save_to_cloud(config):
+        return
     config.save()
     console.print("[green]Saved.[/] Run [bold]anvil[/] in your project folder. Change this any time with [bold]anvil --setup[/] or /setup.")
+
+
+def save_to_cloud(config: Config) -> bool:
+    """When signed in to Anvil cloud, synced settings go to the server, not config.json."""
+    if not config.cloud_email:
+        return False
+    from .cloud.client import CloudError, push_settings
+    from .cloud.server import SYNCED
+    try:
+        push_settings({k: getattr(config, k) for k in SYNCED})
+    except CloudError as e:
+        console.print(f"[red]Couldn't save to Anvil cloud: {e}[/]")
+        return True
+    config.save()  # machine-only settings
+    console.print(f"[green]Saved to Anvil cloud[/] ({config.cloud_email}). Every signed-in machine gets it on next start.")
+    return True
 
 
 def ensure_configured(config: Config) -> None:
     if config.resolved_key():
         return
+    if not config.cloud_email:
+        console.print("[dim]Have an Anvil cloud server? Press Ctrl+C and run [bold]anvil login <server>[/] instead.[/]")
     setup_wizard(config)
     if not config.resolved_key():
         console.print("[red]No API key given; exiting.[/]")
@@ -530,7 +550,12 @@ def interactive(agent: Agent) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="anvil", description="A terminal coding agent on your own Anthropic API key.")
+    from .cloud.cli import USAGE as CLOUD_USAGE, dispatch as cloud_dispatch
+    rc = cloud_dispatch(sys.argv[1:])
+    if rc is not None:
+        sys.exit(rc)
+    parser = argparse.ArgumentParser(prog="anvil", description="A terminal coding agent on your own Anthropic API key.",
+                                     epilog="Cloud sign-in:\n" + CLOUD_USAGE, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("prompt", nargs="*", help="Run this prompt non-interactively and exit (same as -p)")
     parser.add_argument("-p", "--print", dest="print_prompt", help="Run one prompt non-interactively and exit")
     parser.add_argument("-m", "--model", help="Model id or alias (opus, sonnet, haiku, fable)")
@@ -554,6 +579,9 @@ def main() -> None:
     args = parser.parse_args()
 
     config = Config.load()
+    from .cloud.client import load_cloud_settings
+    if load_cloud_settings(config, notice=lambda m: console.print(f"[yellow]{m}[/]")):
+        console.print(f"[dim]Settings from Anvil cloud ({config.cloud_email})[/]")
     if args.install_browser:
         sys.exit(install_browser())
     if args.add_skills:
@@ -573,6 +601,8 @@ def main() -> None:
         return
     if args.set_key:
         config.api_key = getpass.getpass("API key: ").strip()
+        if save_to_cloud(config):
+            return
         config.save()
         console.print(f"Saved to {CONFIG_DIR / 'config.json'}")
         return
