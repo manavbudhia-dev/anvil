@@ -494,10 +494,8 @@ class App:
             c.reasoning_effort = data["reasoning_effort"] or ""
         if "compat_mode" in data:
             c.compat_mode = bool(data["compat_mode"])
-        if data.get("language") in ("english", "hinglish") and data["language"] != c.language:
-            c.language = data["language"]
-            for sess in self.sessions.values():  # the new language applies from the next request
-                sess.agent.reset_system()
+        if data.get("language") in ("english", "hinglish"):
+            c.language = data["language"]  # applies from each session's next request
         for k in ("price_input", "price_output"):
             if k in data:
                 try:

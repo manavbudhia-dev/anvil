@@ -59,7 +59,6 @@ def test_bash_summary_and_clip():
 
 def test_hinglish_setting_changes_the_system_prompt(anthropic, make_agent, project):
     assert "Hinglish" not in build_system_prompt(project)
-    assert "Hinglish" in build_system_prompt(project, "hinglish")
     a = make_agent(anthropic(), language="hinglish")
     assert "Hinglish" in a.system
     a.config.language = "english"

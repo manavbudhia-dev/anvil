@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-- **Simpler terminal, and Hinglish**: approvals take one key (`y` / `a` / `n`, no Enter), show a one-line plain description of each command, and collapse long commands (`v` shows all). Command output shows ✓/✗ and the first few lines. Shift+Tab or `/auto` switches between ask, edits and auto. `"language": "hinglish"` (in `--setup`, `/lang`, the desktop app and Anvil cloud settings) makes Anvil reply in short, simple Hinglish and translates the terminal prompts.
-- Fixed: "always" now covers both file-edit tools, and when the machine's permission limit stops "always" from applying, Anvil says so instead of silently asking again.
 - **Browser chat on Anvil cloud** (`anvil cloud chat on`): the desktop app's chat at `<server>/app/`, behind Google sign-in, runs the agent on the server from any browser or phone, with streaming, approvals, permission modes and settings saved on the server. Version 0.3.0, so `pip install --upgrade` picks it up.
 - **Stronger command safety**: commands are now parsed like a shell would (quotes, `$'...'`, brace expansion, variables, `sudo`/`env`/`xargs`/`find -exec` wrappers, `bash -c`, `eval`, heredocs, `cmd /c`, PowerShell `-Command`/`-EncodedCommand`) instead of matched with regexes, and interpreter one-liners (`python -c`, `node -e`, `perl -e`, `ruby -e`, `php -r`, `awk`) are checked for deleting files, running shell commands or hidden code. Piping downloaded or decoded text into a shell always asks. Protected paths now cover Linux, macOS and Windows (system folders, startup locations, credentials, the project's `.anvil/`), and cmd.exe/PowerShell destructive commands are detected.
 - **Optional sandbox** for the bash tool (`"sandbox": {"mode": "auto"}`, per user or per project): bubblewrap or firejail on Linux, sandbox-exec on macOS, Docker/Podman anywhere. Only the project folder is writable, secrets are hidden, network can be cut, and admins can require it in the policy file.
 
 - **Anvil cloud**: a self-hosted server (`anvil cloud serve`) where you sign in with Google and keep your provider, base URL, model, API key and settings, encrypted at rest. `anvil login <server>` (device-code sign-in) and the desktop app's Settings fetch them, so new machines need no `anvil --setup`. The key stays in memory on clients; sign-ins can be revoked per machine.
+- **Simpler terminal, and Hinglish**: approvals take one key (`y` / `a` / `n`, no Enter), show a one-line plain description of each command, and collapse long commands (`v` shows all). Command output shows ✓/✗ and the first few lines. Shift+Tab or `/auto` switches between ask, edits and auto. `"language": "hinglish"` (in `--setup`, `/lang`, the desktop app and Anvil cloud settings) makes Anvil reply in short, simple Hinglish and translates the terminal prompts.
+- Fixed: "always" now covers both file-edit tools, and when the machine's permission limit stops "always" from applying, Anvil says so instead of silently asking again.
 
 ## 0.2.0
 

@@ -38,7 +38,7 @@ SYSTEM_TEMPLATE = """You are Anvil, an AI coding agent running in the user's ter
 - Shell used by the bash tool: {shell}
 - Date: {today}
 - Git repository: {is_git}
-{skills}{project_docs}{style}"""
+{skills}{project_docs}"""
 
 
 def _project_docs(root: Path) -> str:
@@ -59,7 +59,7 @@ def _skills_section(root: Path) -> str:
             "Load the skill before starting that kind of task.\n" + "\n".join(lines) + "\n")
 
 
-def build_system_prompt(root: Path, language: str = "english") -> str:
+def build_system_prompt(root: Path) -> str:
     try:
         is_git = subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True,
@@ -70,7 +70,7 @@ def build_system_prompt(root: Path, language: str = "english") -> str:
     return SYSTEM_TEMPLATE.format(
         root=root, platform=f"{platform.system()} {platform.release()}", shell=shell_name(),
         today=date.today().isoformat(), is_git="yes" if is_git else "no",
-        skills=_skills_section(root), project_docs=_project_docs(root), style=style_prompt(language),
+        skills=_skills_section(root), project_docs=_project_docs(root),
     )
 
 
@@ -86,7 +86,7 @@ class Agent:
         self.tools = Tools(self.root)
         self.backend = make_backend(config, ui)
         self.messages: list[dict] = []
-        self.system = build_system_prompt(self.root, language_of(self.config))
+        self.system = build_system_prompt(self.root)
         self.auto_approve_all = auto_approve_all
         self.accept_edits = False
         self._element: dict | None = None
@@ -133,11 +133,11 @@ class Agent:
     def reset_system(self) -> None:
         """Refresh the system prompt (e.g. after skills changed). Only safe between conversations
         or when the user accepts a cache miss; history is kept."""
-        self.system = build_system_prompt(self.root, language_of(self.config))
+        self.system = build_system_prompt(self.root)
 
     def reset(self) -> None:
         self.messages = []
-        self.system = build_system_prompt(self.root, language_of(self.config))
+        self.system = build_system_prompt(self.root)
 
     @property
     def browser_enabled(self) -> bool:
@@ -298,6 +298,15 @@ class Agent:
         if self.accept_edits and is_edit and allowed("edits", self.ceiling):
             return False, []
         return True, []
+
+    @property
+    def system(self) -> str:
+        """The system prompt, plus the reply-language style when one is set (e.g. Hinglish)."""
+        return self._system + style_prompt(language_of(self.config))
+
+    @system.setter
+    def system(self, value: str) -> None:
+        self._system = value
 
     @property
     def mode(self) -> str:
