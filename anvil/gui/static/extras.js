@@ -117,11 +117,12 @@ document.body.appendChild(overlay);
 overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
 overlay.querySelector(".x-head .icon-btn").onclick = close;
 const body = overlay.querySelector(".x-body");
-let current = null;
-function close() { overlay.classList.remove("open"); current = null; }
+let current = null, gen = 0;
+function close() { overlay.classList.remove("open"); current = null; gen++; }
 function shell(id, title, icon) {
   current = id; overlay.querySelector("h2").textContent = title; overlay.querySelector(".x-head .x-ico").innerHTML = ico(icon, 15);
   body.innerHTML = ""; overlay.classList.add("open");
+  return ++gen;
 }
 const PANELS = {};
 function open(id, arg) { PANELS[id](arg); }
@@ -171,12 +172,12 @@ PANELS.search = function () {
 
 // ---------- artifacts ----------
 PANELS.artifacts = async function (openId) {
-  shell("artifacts", "Artifacts", "artifact");
+  const token = shell("artifacts", "Artifacts", "artifact");
   body.innerHTML = `<p class="x-sub">Pages, reports and diagrams Anvil saved for you. Ask it to “save this as an artifact” in any session.</p><div class="x-split"><div class="x-list"></div><div class="x-view"><div class="x-empty">Pick an artifact to preview it.</div></div></div>`;
   const list = body.querySelector(".x-list"), view = body.querySelector(".x-view"), split = body.querySelector(".x-split");
   let items = [], selected = openId || null;
   async function load() {
-    items = (await api("/api/artifacts")).artifacts; list.innerHTML = "";
+    const r = await api("/api/artifacts"); if (gen !== token) return; items = r.artifacts; list.innerHTML = "";
     if (!items.length) { list.innerHTML = `<div class="x-empty">No artifacts yet.</div>`; return; }
     for (const a of items) {
       const d = el("div", "x-res" + (a.id === selected ? " sel" : ""));
@@ -215,9 +216,9 @@ PANELS.artifacts = async function (openId) {
 
 // ---------- connectors ----------
 PANELS.connectors = async function () {
-  shell("connectors", "Connectors", "plug");
+  const token = shell("connectors", "Connectors", "plug");
   let data = null, adding = null;
-  async function load() { data = await api("/api/connectors"); render(); }
+  async function load() { const d = await api("/api/connectors"); if (gen !== token) return; data = d; render(); }
   function stateText(c) {
     if (!c.enabled) return "Off";
     return { ready: `Connected · ${c.tools.length} tools`, connecting: "Connecting…", signing_in: "Waiting for you to finish signing in…",
@@ -314,9 +315,10 @@ PANELS.connectors = async function () {
 
 // ---------- plugins ----------
 PANELS.plugins = async function () {
-  shell("plugins", "Plugins", "puzzle");
+  const token = shell("plugins", "Plugins", "puzzle");
   async function load() {
     const { plugins } = await api("/api/plugins");
+    if (gen !== token) return;
     body.innerHTML = `<p class="x-sub">Plugins bundle skills, slash commands and connectors. Install from a git URL or a folder; Claude Code plugins work too.</p>
       <div class="x-form"><div class="row" style="gap:8px"><input type="text" class="src" placeholder="https://github.com/someone/anvil-plugin.git or a folder path" spellcheck="false" style="flex:3;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--panel)"><input type="text" class="pl" placeholder="Plugin name (optional)" spellcheck="false" style="flex:1;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--panel)"><button class="btn primary" style="flex:0">Install</button></div><div class="help">The name is only needed for repositories that hold several plugins.</div></div>
       <div class="x-section">Installed</div><div class="lst"></div>`;
@@ -344,9 +346,9 @@ PANELS.plugins = async function () {
 
 // ---------- scheduled tasks ----------
 PANELS.scheduled = async function () {
-  shell("scheduled", "Scheduled tasks", "clock");
+  const token = shell("scheduled", "Scheduled tasks", "clock");
   let editing = null, data = null;
-  async function load() { data = await api("/api/schedules"); render(); }
+  async function load() { const d = await api("/api/schedules"); if (gen !== token) return; data = d; render(); }
   function render() {
     body.innerHTML = `<p class="x-sub">Run a prompt on a schedule in a project folder. Tasks run while Anvil is open here, or on a server with <code>anvil schedule daemon</code>. Each run becomes a session you can open.</p>`;
     if (editing) { body.appendChild(form(editing === true ? null : editing)); }
@@ -400,9 +402,10 @@ PANELS.scheduled = async function () {
 
 // ---------- browser ----------
 PANELS.browser = async function () {
-  shell("browser", "Browser", "globe");
+  const token = shell("browser", "Browser", "globe");
   async function load() {
     const b = await api("/api/browser");
+    if (gen !== token) return;
     body.innerHTML = `<p class="x-sub">With the browser on, Anvil can open pages, click, type and take screenshots in its own Chromium window (separate profile, logins persist). It asks before clicking or typing unless you allow it.</p>`;
     const r = el("div", "x-row");
     r.innerHTML = `<span class="x-ico">${ico("globe", 14)}</span><div class="main"><div class="t"><span class="x-dot ${b.installed && b.enabled ? "ready" : b.installed ? "" : "error"}"></span>Browser tools</div><div class="d"></div></div><div class="acts"></div>`;
