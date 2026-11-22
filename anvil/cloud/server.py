@@ -77,6 +77,9 @@ class CloudConfig:
     host: str = "127.0.0.1"
     port: int = 8787
     data_dir: str = ""                   # default: ~/.config/anvil/cloud-server
+    chat: bool = False                   # browser chat at /app/: runs the agent on this server
+    chat_workspace: str = ""             # folder new chat sessions start in (default: home folder)
+    chat_emails: list[str] = field(default_factory=list)  # who may use chat (default: allowed_emails)
 
     @classmethod
     def load(cls, path: Path) -> "CloudConfig":
@@ -102,6 +105,8 @@ class CloudConfig:
             out.append("google_client_id and google_client_secret are required")
         if not self.allowed_emails:
             out.append("allowed_emails is empty, so nobody could sign in")
+        if self.chat and not Path(self.chat_workspace or "~").expanduser().is_dir():
+            out.append(f"chat_workspace {self.chat_workspace} is not a folder")
         return out
 
 
@@ -148,7 +153,7 @@ class RateLimiter:
 
 
 class CloudApp:
-    def __init__(self, cfg: CloudConfig, store: Store | None = None, exchange=None):
+    def __init__(self, cfg: CloudConfig, store: Store | None = None, exchange=None, chat=None):
         self.cfg = cfg
         if store is None:
             data = cfg.data_path()
@@ -157,6 +162,10 @@ class CloudApp:
         self.exchange = exchange or (lambda code, verifier: google_exchange(cfg, code, verifier))
         self.limiter = RateLimiter(120)
         self.secure_cookie = cfg.public_url.startswith("https://")
+        if chat is None and cfg.chat:
+            from .chat import CloudChat
+            chat = CloudChat(cfg, store)
+        self.chat = chat
 
     def allowed(self, email: str) -> bool:
         return email.lower() in self.cfg.allowed_emails
@@ -335,7 +344,39 @@ def make_handler(app: CloudApp):
         def do_HEAD(self):
             self.do_GET()
 
+        def _chat(self, method: str) -> bool:
+            """Hand /app requests to the browser chat. True if this request was one."""
+            from .chat import PREFIX
+            path = urllib.parse.urlparse(self.path).path
+            if not app.chat or not (path == PREFIX or path.startswith(PREFIX + "/")):
+                return False
+            email, csrf = self._web_user()
+            if method in ("GET", "HEAD") and path in (PREFIX, PREFIX + "/", PREFIX + "/index.html"):
+                if not email:
+                    self._redirect("/login?next=" + urllib.parse.quote(PREFIX + "/", safe=""))
+                    return True
+                if path == PREFIX:
+                    self._redirect(PREFIX + "/")
+                    return True
+            if not email:
+                if method not in ("GET", "HEAD"):
+                    self.close_connection = True
+                self._json({"error": "unauthorized"}, 401)
+                return True
+            if not app.chat.allowed(email):
+                self.close_connection = True
+                self._json({"error": f"{email} can't use chat on this server"}, 403)
+                return True
+            app.chat.handle(self, method, email, csrf)
+            return True
+
+        def do_DELETE(self):
+            if not self._chat("DELETE"):
+                self._json({"error": "not found"}, 404)
+
         def do_GET(self):
+            if self._chat(self.command):
+                return
             url = urllib.parse.urlparse(self.path)
             q = {k: v[-1] for k, v in urllib.parse.parse_qs(url.query).items()}
             if url.path == "/healthz":
@@ -360,6 +401,8 @@ def make_handler(app: CloudApp):
             self._json({"error": "not found"}, 404)
 
         def do_POST(self):
+            if self._chat("POST"):
+                return
             url = urllib.parse.urlparse(self.path)
             try:
                 if url.path.startswith("/api/"):
@@ -454,7 +497,9 @@ def make_handler(app: CloudApp):
             note = "<p class=mut style='color:var(--acc)'>Saved. Apps pick this up next time they start.</p>" if saved else ""
             head = (f"<div class=card><div class=row style=margin:0><div><h1>Anvil</h1><p class=mut>Signed in as {esc(email)}</p></div>"
                     f"<form method=post action=/logout><input type=hidden name=csrf value='{esc(csrf)}'><button>Sign out</button></form></div>{note}"
-                    f"<p class=mut>On a new machine: <code>anvil login {esc(cfg.public_url)}</code></p></div>")
+                    f"<p class=mut>On a new machine: <code>anvil login {esc(cfg.public_url)}</code></p>"
+                    + ("<div class=row><a class='btn primary' href=/app/>Open chat</a></div>"
+                       if app.chat and app.chat.allowed(email) else "") + "</div>")
             self._html("Anvil", head + settings_form(store.get_settings(email), csrf) + logins_table(store.list_logins(email), csrf))
 
         def _device_page(self, code: str):

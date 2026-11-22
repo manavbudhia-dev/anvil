@@ -7,9 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Anvil">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon-192.png">
-<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Anvil</title>
 <style>
 :root {
@@ -375,7 +375,7 @@ details[open] > summary .chev { transform: rotate(90deg); }
         <div class="field"><label for="s-pout">Output price ($/1M)</label><input type="number" step="0.01" min="0" id="s-pout"></div>
       </div>
       <div class="help" style="margin-top:-8px">Optional, for cost estimates on models Anvil doesn't know. Leave 0 to use built-in Claude prices.</div>
-      <div class="field" style="margin-top:18px"><label>Connect a phone or app</label>
+      <div class="field" id="f-connect" style="margin-top:18px"><label>Connect a phone or app</label>
         <div id="qr-box"></div>
         <div class="help" id="qr-help"></div>
         <div class="help" id="qr-url"></div>
@@ -416,7 +416,11 @@ details[open] > summary .chev { transform: rotate(90deg); }
 <div class="toast" id="toast"></div>
 
 <script>
+// Set by the Anvil cloud server when it serves this page at /app/ behind Google sign-in.
+const CLOUD = window.ANVIL_CLOUD || null;
+const BASE = CLOUD ? CLOUD.base : "";
 function readToken() {
+  if (CLOUD) return CLOUD.token;
   const fromLink = new URLSearchParams(location.hash.slice(1)).get("token");
   if (fromLink) {
     try { localStorage.setItem("anvil-token", fromLink); } catch {}
@@ -440,9 +444,10 @@ let live = { text: null, textBuf: "", think: null, thinkBuf: "", tool: null };
 
 // ---------- api ----------
 async function api(path, opts = {}) {
-  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", "X-Anvil-Token": TOKEN, ...(opts.headers || {}) },
+  const res = await fetch(BASE + path, { ...opts, headers: { "Content-Type": "application/json", "X-Anvil-Token": TOKEN, ...(opts.headers || {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && CLOUD) { location.href = "/login?next=" + encodeURIComponent(BASE + "/"); throw new Error("signed out"); }
   if (res.status === 401) { showTokenScreen("This device isn't connected, or the token changed. Paste the new link from anvil-desktop --qr."); throw new Error("not connected"); }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -645,7 +650,7 @@ function onEvent(ev) {
   }
 }
 function connect() {
-  const es = new EventSource(`/api/events?token=${encodeURIComponent(TOKEN)}`);
+  const es = new EventSource(`${BASE}/api/events?token=${encodeURIComponent(TOKEN)}`);
   es.onmessage = (m) => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.error(e); } };
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
@@ -738,6 +743,7 @@ function setProv(v) {
   $("#prov-help").textContent = PROV_HELP[v]; $("#f-base").style.display = v === "official" ? "none" : "block"; $("#f-compat").style.display = v === "anthropic" ? "block" : "none";
 }
 async function loadConnect() {
+  if (CLOUD) { $("#f-connect").style.display = "none"; return; }
   try {
     const c = await api("/api/connect");
     const box = $("#qr-box"); box.innerHTML = "";
@@ -745,7 +751,7 @@ async function loadConnect() {
       $("#qr-help").innerHTML = "Phone access isn't set up yet. On this machine run <code>anvil-desktop --tailscale</code> (or <code>--public-url</code> for another tunnel), then reopen Settings.";
       $("#qr-url").textContent = ""; return;
     }
-    const res = await fetch("/api/qr.svg", { headers: { "X-Anvil-Token": TOKEN } });
+    const res = await fetch(BASE + "/api/qr.svg", { headers: { "X-Anvil-Token": TOKEN } });
     const img = el("img"); img.alt = "QR code to connect a phone"; img.src = URL.createObjectURL(await res.blob()); box.appendChild(img);
     $("#qr-help").textContent = "Scan with your phone's camera (Tailscale must be connected on the phone). Then use Add to Home Screen. Anyone with this code can control Anvil, so keep it private. Make a new one with anvil-desktop --rotate-token.";
     $("#qr-url").textContent = (c.public_url || location.origin + "/");
@@ -758,6 +764,13 @@ function renderCloud() {
   const c = state.config.cloud || {}; const box = $("#cloud-box"); box.innerHTML = ""; const help = $("#cloud-help");
   const login = c.login || {};
   clearTimeout(cloudPoll);
+  if (CLOUD) {
+    box.appendChild(textEl("span", "", `Signed in as ${CLOUD.email}`));
+    const a = textEl("a", "", "Account and sign-in page"); a.href = location.origin + "/"; a.style.marginLeft = "10px"; box.appendChild(a);
+    help.textContent = "Anvil runs on this server. Settings below are saved encrypted here, the same ones your terminal and desktop app get with anvil login.";
+    $("#settings-sub").textContent = "Connect Anvil to the Anthropic API or your own gateway. Saved on this server.";
+    return;
+  }
   if (c.email) {
     const row = el("div"); row.style.cssText = "display:flex;gap:8px;align-items:center;justify-content:space-between";
     row.appendChild(textEl("span", "", `Signed in as ${c.email}`));
@@ -947,7 +960,7 @@ document.addEventListener("click", (e) => {
   const c = e.target.closest(".copy"); if (c) { navigator.clipboard.writeText(c.parentElement.querySelector("code").textContent).then(() => { c.textContent = "Copied"; setTimeout(() => (c.textContent = "Copy"), 1200); }); }
 });
 
-if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
+if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register(BASE + "/sw.js").catch(() => {});
 (async function init() {
   if (!TOKEN) { showTokenScreen(); return; }
   connect();

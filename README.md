@@ -331,6 +331,22 @@ In the desktop app: Settings → Anvil cloud → enter the server → Sign in wi
 
 Only emails in `allowed_emails` can sign in. Back up `master.key` together with `anvil-cloud.db`: without the key the saved settings can't be decrypted.
 
+### Chat in the browser (run the agent on the server)
+
+The server can also host the desktop app's chat at `https://anvil.example.com/app/`, behind the same Google sign-in, so you can run Anvil on the server from any browser or phone: sessions, streaming replies, Allow/Deny approvals, permission modes, skills and settings. It is off by default.
+
+```bash
+anvil cloud chat on --workspace ~/projects   # writes chat + chat_workspace to server.json
+systemctl --user restart anvil-cloud         # or however you run `anvil cloud serve`
+```
+
+- The agent runs on the server **as the user the server runs as**, starting in `chat_workspace` (default: the home folder; a new session can use any folder). Treat chat access like shell access to that account.
+- Who may chat: everyone in `allowed_emails`, or only the emails in `chat_emails` if you set it.
+- It uses the settings saved for your account on the server; changing them in the chat's Settings saves them there too. Bash safety rules, `permission_ceiling`, `auto_approve` and the `sandbox` come from the server account's own `~/.config/anvil/config.json`, as in the terminal. Sessions are saved in `~/.config/anvil/sessions/`, shared with the terminal on that machine.
+- Requests need the sign-in cookie, and anything that changes state also needs a per-sign-in token sent in a header, so other sites can't drive it. Sign-ins last 12 hours.
+- If the server runs under systemd with `ProtectSystem=strict`, the agent can only write to `ReadWritePaths`: add `~/.config/anvil` and your workspace (see [`server/anvil-cloud.service`](server/anvil-cloud.service)). `NoNewPrivileges=true` also stops `sudo` in agent commands.
+- Use Add to Home Screen on the phone to open it like an app.
+
 ## Use
 
 ```bash

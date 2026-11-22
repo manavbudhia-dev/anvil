@@ -85,7 +85,7 @@ class Browser:
     def __init__(self, port):
         self.port, self.cookies = port, {}
 
-    def req(self, method, path, form=None, headers=None):
+    def req(self, method, path, form=None, headers=None, json_body=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         h = dict(headers or {})
         if self.cookies:
@@ -94,6 +94,9 @@ class Browser:
         if form is not None:
             body = urllib.parse.urlencode(form)
             h["Content-Type"] = "application/x-www-form-urlencoded"
+        if json_body is not None:
+            body = json.dumps(json_body)
+            h["Content-Type"] = "application/json"
         conn.request(method, path, body=body, headers=h)
         r = conn.getresponse()
         data = r.read().decode()
