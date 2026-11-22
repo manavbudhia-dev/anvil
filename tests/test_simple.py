@@ -6,7 +6,7 @@ from prompt_toolkit.output import DummyOutput
 from anvil import cli, safety
 from anvil.agent import build_system_prompt
 from anvil.cloud.server import clean_settings
-from anvil.simple import ask_key, bash_summary, clip, next_mode, parse_answer
+from anvil.simple import ask_key, bash_summary, clip, is_exit_word, next_mode, parse_answer
 from anvil.tools import Tools, validate_input
 
 
@@ -139,3 +139,42 @@ def test_lang_and_auto_commands(anthropic, make_agent):
     assert a.mode == "auto"
     cli.handle_command(a, "/auto")
     assert a.mode == "ask"
+
+
+class _Prompts:
+    """Stands in for the prompt session: returns lines, or raises what it's given."""
+
+    def __init__(self, items):
+        self.items = list(items)
+
+    def prompt(self, *a, **k):
+        item = self.items.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+def _interactive(monkeypatch, a, items):
+    sent = []
+    prompts = _Prompts(items)
+    monkeypatch.setattr(cli, "make_prompt_session", lambda agent=None: prompts)
+    monkeypatch.setattr(cli, "run_turn", lambda agent, text: sent.append(text))
+    with cli.console.capture() as cap:
+        cli.interactive(a)
+    return sent, prompts.items, cap.get()
+
+
+def test_exit_words_quit_instead_of_going_to_the_agent(anthropic, make_agent, monkeypatch):
+    for word in ("exit", "Quit", "bye", "band karo"):
+        sent, left, _ = _interactive(monkeypatch, make_agent(anthropic()), ["hello", word, "never read"])
+        assert sent == ["hello"] and left == ["never read"]
+    assert not is_exit_word("exit the loop early in main.py")
+
+
+def test_ctrl_c_twice_quits_and_once_shows_a_hint(anthropic, make_agent, monkeypatch):
+    a = make_agent(anthropic(), language="hinglish")
+    sent, left, out = _interactive(monkeypatch, a, [KeyboardInterrupt(), KeyboardInterrupt(), "never read"])
+    assert left == ["never read"] and "Dobara Ctrl+C" in out
+    monkeypatch.setattr(cli, "CTRL_C_QUIT_SECONDS", 0)  # too slow: the second press is a new first press
+    sent, left, _ = _interactive(monkeypatch, a, [KeyboardInterrupt(), KeyboardInterrupt(), "hi", EOFError()])
+    assert sent == ["hi"] and left == []
