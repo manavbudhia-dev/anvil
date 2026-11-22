@@ -420,6 +420,11 @@ details[open] > summary .chev { transform: rotate(90deg); }
 // Set by the Anvil cloud server when it serves this page at /app/ behind Google sign-in.
 const CLOUD = window.ANVIL_CLOUD || null;
 const BASE = CLOUD ? CLOUD.base : "";
+if (CLOUD) {  // code that still uses absolute paths (/api/..., /extras.js) keeps working under /app/
+  const pre = (u) => (typeof u === "string" && /^\/(api\/|[\w.-]+\.(js|css|png|svg|json|webmanifest)(\?|$))/.test(u) ? BASE + u : u);
+  const f = window.fetch.bind(window); window.fetch = (u, o) => f(pre(u), o);
+  const ES = window.EventSource; window.EventSource = class extends ES { constructor(u, o) { super(pre(u), o); } };
+}
 function readToken() {
   if (CLOUD) return CLOUD.token;
   const fromLink = new URLSearchParams(location.hash.slice(1)).get("token");
@@ -445,9 +450,19 @@ let live = { text: null, textBuf: "", think: null, thinkBuf: "", tool: null };
 
 // ---------- api ----------
 async function api(path, opts = {}) {
-  const res = await fetch(BASE + path, { ...opts, headers: { "Content-Type": "application/json", "X-Anvil-Token": TOKEN, ...(opts.headers || {}) },
-    body: opts.body ? JSON.stringify(opts.body) : undefined });
-  const data = await res.json().catch(() => ({}));
+  // no-store: Chrome otherwise can hold a request behind an unfinished one for the same URL (its
+  // cache lock) for 20 seconds, which left the app half-loaded behind a proxy.
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), opts.timeout || 30000);
+  let res, data;
+  try {
+    res = await fetch(BASE + path, { cache: "no-store", signal: ctl.signal, ...opts, headers: { "Content-Type": "application/json", "X-Anvil-Token": TOKEN, ...(opts.headers || {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined });
+    data = await res.json().catch(() => null);
+  } catch (e) {
+    throw new Error(e.name === "AbortError" ? "The server took too long to answer." : "Couldn't reach Anvil. Check your connection.");
+  } finally { clearTimeout(timer); }
+  if (res.ok && data === null) throw new Error("The server sent an unexpected answer. Reload the page.");
+  data = data || {};
   if (res.status === 401 && CLOUD) { location.href = "/login?next=" + encodeURIComponent(BASE + "/"); throw new Error("signed out"); }
   if (res.status === 401) { showTokenScreen("This device isn't connected, or the token changed. Paste the new link from anvil-desktop --qr."); throw new Error("not connected"); }
   if (!res.ok) throw new Error(data.error || res.statusText);
@@ -693,8 +708,8 @@ function renderSessions() {
     box.appendChild(d);
   }
 }
-async function loadState() {
-  const st = await api("/api/state");
+async function loadState() { applyState(await api("/api/state")); }
+function applyState(st) {
   state.config = st.config; state.sessions = st.sessions; state.defaultRoot = st.default_root; state.canPick = st.can_pick_folder; state.home = st.home;
   if (!state.sessions.find((s) => s.id === state.current) && state.current && state.meta) state.sessions.unshift({ id: state.current, title: state.meta.title, root: state.meta.root, running: state.running });
   renderSessions(); applyConfig();
@@ -813,6 +828,7 @@ async function cloudLogout() {
   catch (e) { toast(e.message); }
 }
 function openSettings() {
+  if (!state.config) { toast("Still loading, try again in a moment"); loadState().catch((e) => toast(e.message)); return; }
   loadConnect(); renderCloud();
   const c = state.config;
   setProv(c.provider === "openai" ? "openai" : c.base_url ? "anthropic" : "official");
@@ -966,7 +982,13 @@ if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWor
 (async function init() {
   if (!TOKEN) { showTokenScreen(); return; }
   connect();
-  ready = (async () => { await loadState(); await newSession(state.defaultRoot); document.body.dataset.ready = "1"; })();
+  ready = (async () => {
+    for (let i = 0; ; i++) {  // a flaky phone connection shouldn't leave a half-loaded app
+      try { await api("/api/state" + (i ? `?retry=${i}` : ""), { timeout: 8000 }).then(applyState); break; }
+      catch (e) { if (i >= 3) { addNotice(`Couldn't load Anvil: ${e.message}`, true); throw e; } await new Promise((r) => setTimeout(r, 800 * (i + 1))); }
+    }
+    await newSession(state.defaultRoot); document.body.dataset.ready = "1";
+  })();
   await ready;
   if (!state.config.key_set) openSettings();
 })();

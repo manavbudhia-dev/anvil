@@ -84,6 +84,10 @@ def test_chat_page_and_csrf(chat):
     assert h["X-Frame-Options"] == "DENY"
     token = page_token(html)
     assert b.req("GET", "/app/manifest.webmanifest")[0] == 200
+    # Browsers fetch the manifest without cookies.
+    for path in ("/app/manifest.webmanifest", "/app/sw.js"):
+        assert Browser(port).req("GET", path)[0] == 200, path
+    assert Browser(port).req("GET", "/app/api/state")[0] == 401
     st, _, body = b.req("GET", "/app/api/state")
     assert st == 200 and json.loads(body)["config"]["cloud"]["email"] == OWNER
     assert json.loads(body)["default_root"] == app.cfg.chat_workspace
@@ -191,5 +195,38 @@ def test_chat_in_a_real_phone_browser(chat, project):
         assert (project / "hi.txt").read_text() == "hi\n"
         page.click("#show-side")
         assert page.locator(".sess:has-text('write hi.txt')").count() == 1
+        browser.close()
+    assert errors == []
+
+
+def test_chat_survives_a_stuck_first_load_and_settings_open(chat):
+    """Behind a proxy Chrome once held the first /api/state for 20 s; the app must still load."""
+    from test_browser import _browser_works
+    if not _browser_works():
+        pytest.skip("Playwright/Chromium not installed")
+    from playwright.sync_api import sync_playwright
+    _, port, _ = chat
+    b = Browser(port)
+    b.sign_in()
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        ctx = browser.new_context(viewport={"width": 1280, "height": 820})
+        ctx.add_cookies([{"name": "anvil_cloud", "value": b.cookies["anvil_cloud"], "url": f"http://127.0.0.1:{port}"}])
+        page = ctx.new_page()
+        errors, hits = [], []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+
+        def stall_first(route):
+            hits.append(route.request.url)
+            if len(hits) == 1:
+                return route.fulfill(status=200, body="<html>proxy page</html>", content_type="text/html")
+            route.continue_()
+        page.route("**/app/api/state*", stall_first)
+        page.goto(f"http://127.0.0.1:{port}/app/")
+        page.wait_for_selector("body[data-ready='1']", timeout=15000)
+        assert len(hits) >= 2 and page.input_value("#model-input") == "claude-opus-5-5"
+        page.click("#settings-btn")
+        page.wait_for_selector("#settings.open")
+        assert page.is_hidden("#f-connect") and "Signed in as" in page.inner_text("#cloud-box")
         browser.close()
     assert errors == []
