@@ -8,6 +8,14 @@ LANGUAGES = ("english", "hinglish")
 MODES = ("ask", "edits", "auto")  # same order as safety.MODES: least to most permissive
 
 
+EXIT_WORDS = {"exit", "quit", "bye", "exit()", "quit()", ":q", "band", "band karo", "band kar do", "bye bye"}
+
+
+def is_exit_word(line: str) -> bool:
+    """A bare 'exit', 'quit', 'bye' or 'band karo' typed at the prompt means: close Anvil."""
+    return line.strip().lower().rstrip(".!") in EXIT_WORDS
+
+
 def language_of(config) -> str:
     lang = str(getattr(config, "language", "") or "").strip().lower()
     return lang if lang in LANGUAGES else "english"
@@ -60,7 +68,8 @@ TEXT = {
         "mode_set": "Mode: [bold]{mode}[/]",
         "mode_limited": "The permission limit on this machine is '{ceiling}', so modes above it are skipped.",
         "lang_set": "Language: [bold]{lang}[/]",
-        "banner_hint": "/help for commands · Shift+Tab changes mode · Ctrl+C stops · Ctrl+D quits",
+        "banner_hint": "/help for commands · Shift+Tab changes mode · Ctrl+C stops · type exit (or Ctrl+C twice) to quit",
+        "ctrl_c_again": "Press Ctrl+C again to quit (or type exit).",
         "setup_lang": "Reply language: [bold]1[/] English  [bold]2[/] Hinglish (simple Hindi + English)",
     },
     "hinglish": {
@@ -90,7 +99,8 @@ TEXT = {
         "mode_set": "Mode: [bold]{mode}[/]",
         "mode_limited": "Is machine pe permission limit '{ceiling}' hai, isse upar wale modes nahi milenge.",
         "lang_set": "Bhasha: [bold]{lang}[/]",
-        "banner_hint": "/help se commands · Shift+Tab se mode badlo · Ctrl+C se roko · Ctrl+D se band karo",
+        "banner_hint": "/help se commands · Shift+Tab se mode badlo · Ctrl+C se roko · band karne ke liye exit likho (ya Ctrl+C do baar)",
+        "ctrl_c_again": "Band karna hai? Dobara Ctrl+C dabao (ya exit likho).",
         "setup_lang": "Jawab kis bhasha mein? [bold]1[/] English  [bold]2[/] Hinglish (simple Hindi + English)",
     },
 }

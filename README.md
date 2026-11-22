@@ -369,7 +369,7 @@ The agent can read, search, create and edit files, and run shell commands. Befor
 - **Enter** sends, **Alt+Enter** (or Esc then Enter) adds a newline
 - **Ctrl+C** interrupts the agent mid-turn; your next message redirects it
 - **Shift+Tab** switches mode: ask → edits → auto
-- **Ctrl+D** or `/exit` quits; the session is auto-saved
+- **Ctrl+D**, `exit` (also `quit`, `bye`, `band karo`) or **Ctrl+C twice** at the prompt quits; the session is auto-saved
 
 ### Commands
 

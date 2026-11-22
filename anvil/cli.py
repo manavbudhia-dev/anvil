@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -27,8 +28,8 @@ from rich.text import Text
 from . import __version__
 from .agent import Agent, Interrupted
 from .fsutil import atomic_write_text
-from .simple import (LANGUAGES, MODES, ask_key, bash_summary, clip, clip_tail, language_of, mode_label, next_mode, one_line,
-                     parse_answer, t)
+from .simple import (LANGUAGES, MODES, ask_key, bash_summary, clip, clip_tail, is_exit_word, language_of, mode_label,
+                     next_mode, one_line, parse_answer, t)
 from .skills import PERSONAL_DIR, add_repo, discover, sync_dirs
 from .config import CONFIG_DIR, EFFORTS, HISTORY_FILE, SESSIONS_DIR, Config, price_for, resolve_model
 
@@ -587,6 +588,9 @@ def make_prompt_session(agent: Agent | None = None) -> PromptSession:
     )
 
 
+CTRL_C_QUIT_SECONDS = 3  # a second Ctrl+C at the prompt within this long quits
+
+
 def interactive(agent: Agent) -> None:
     console.print(Panel.fit(
         f"[bold]Anvil[/] v{__version__} · your terminal coding agent\n"
@@ -595,15 +599,22 @@ def interactive(agent: Agent) -> None:
         f"[dim]{t(language_of(agent.config), 'banner_hint')}[/]",
         border_style="cyan"))
     session = make_prompt_session(agent)
+    last_ctrl_c = 0.0
     while True:
         try:
             line = session.prompt([("class:prompt", "\n❯ ")]).strip()
         except KeyboardInterrupt:
+            if time.monotonic() - last_ctrl_c < CTRL_C_QUIT_SECONDS:
+                break
+            last_ctrl_c = time.monotonic()
+            console.print(f"[dim]{t(language_of(agent.config), 'ctrl_c_again')}[/]")
             continue
         except EOFError:
             break
         if not line:
             continue
+        if is_exit_word(line):
+            break
         try:
             if line.startswith("/"):
                 prompt = handle_command(agent, line)
