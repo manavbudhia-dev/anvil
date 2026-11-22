@@ -81,6 +81,7 @@ class Config:
     auto_compact_tokens: int = 200000 # summarize the conversation when context grows past this (0 = off)
     openai_cache_control: str = "auto"  # OpenAI-format gateways: send cache markers (auto = for Claude models)
     auto_approve: list[str] = field(default_factory=list)
+    sandbox: dict = field(default_factory=dict)  # optional bash sandbox, see anvil/sandbox.py
 
     @classmethod
     def load(cls) -> "Config":
