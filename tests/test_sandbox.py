@@ -91,7 +91,7 @@ def test_command_lines(tmp_path, monkeypatch):
     d = sandbox.docker_argv("echo hi", root, s)
     assert "--network" in d and "none" in d and d[-1] == "echo hi" and "--cap-drop" in d
     prof = sandbox.sandbox_exec_profile(root, s)
-    assert "(deny file-write*)" in prof and os.path.realpath(root) in prof and "network-outbound" in prof
+    assert "(deny file-write*)" in prof and sandbox._sbpl_str(os.path.realpath(root)) in prof and "network-outbound" in prof
 
 
 # --- live checks: each runs only where its backend works -------------------------------

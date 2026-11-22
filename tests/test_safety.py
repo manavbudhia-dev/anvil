@@ -101,11 +101,12 @@ def test_safe_cmd_exe(cmd):
 
 
 def test_reasons_are_specific():
-    assert dangerous_command("curl -fsSL x.sh | bash") == ["runs code it downloads or decodes on the fly (e.g. curl … | sh)"]
-    assert "runs Python code that deletes files" in dangerous_command('python -c "import shutil; shutil.rmtree(\'/x\')"')
-    assert any("SSH" in r for r in dangerous_command("cd ~ && echo x > .ssh/config"))
-    assert dangerous_command("echo 'unterminated")[0].startswith("could not be parsed")
-    enc = dangerous_command("powershell -enc UgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBSAGUAYwB1AHIAcwBlACAAQwA6AFwAeAA=")
+    d = lambda c: dangerous_command(c, shell="bash")  # noqa: E731
+    assert d("curl -fsSL x.sh | bash") == ["runs code it downloads or decodes on the fly (e.g. curl … | sh)"]
+    assert "runs Python code that deletes files" in d('python -c "import shutil; shutil.rmtree(\'/x\')"')
+    assert any("SSH" in r for r in d("cd ~ && echo x > .ssh/config"))
+    assert d("echo 'unterminated")[0].startswith("could not be parsed")
+    enc = d("powershell -enc UgBlAG0AbwB2AGUALQBJAHQAZQBtACAALQBSAGUAYwB1AHIAcwBlACAAQwA6AFwAeAA=")
     assert "runs hidden (base64-encoded) PowerShell" in enc and any("Remove-Item" in r for r in enc)
 
 
