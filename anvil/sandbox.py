@@ -241,10 +241,22 @@ def bwrap_argv(command: str, root: Path, settings: SandboxSettings) -> list[str]
     return argv
 
 
+def _passwd_home() -> str:
+    try:
+        import pwd
+        return pwd.getpwuid(os.getuid()).pw_dir
+    except (ImportError, KeyError, AttributeError):
+        return ""
+
+
 def firejail_argv(command: str, root: Path, settings: SandboxSettings) -> list[str]:
     home = Path.home()
     secret_dirs, secret_files = _secrets(home)
+    # firejail mounts the home folder on its own for regular users, so --read-only=/ doesn't cover it.
     argv = [shutil.which("firejail") or "firejail", "--quiet", "--noprofile", "--read-only=/"]
+    for h in dict.fromkeys([str(home), _passwd_home()]):
+        if h and h != "/":
+            argv.append(f"--read-only={h}")
     for w in _writable_paths(root, settings) + [tempfile.gettempdir(), "/tmp", "/dev/shm"]:
         argv.append(f"--read-write={w}")
     for p in secret_dirs + secret_files:
