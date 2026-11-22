@@ -245,7 +245,9 @@ def make_handler(app: CloudApp):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")
+            # Not "no-referrer": with it, browsers send "Origin: null" on form posts and the
+            # same-origin check below would refuse every form.
+            self.send_header("Referrer-Policy", "same-origin")
             self.send_header("Content-Security-Policy",
                              "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
             if app.secure_cookie:
@@ -315,6 +317,11 @@ def make_handler(app: CloudApp):
             return email if email and app.allowed(email) else None
 
         def _origin_ok(self) -> bool:
+            # Browsers say whether a request came from this site's own pages. Behind a proxy the
+            # public URL may differ in small ways (port, trailing slash), so trust this first.
+            site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+            if site:
+                return site in ("same-origin", "none")
             origin = self.headers.get("Origin")
             return not origin or origin.rstrip("/") == cfg.public_url
 
