@@ -1,0 +1,19 @@
+# systemd unit for the Anvil cloud server. Copy to /etc/systemd/system/anvil-cloud.service,
+# change User= and the paths, then: sudo systemctl daemon-reload && sudo systemctl enable --now anvil-cloud
+[Unit]
+Description=Anvil cloud (Google sign-in and synced settings)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+ExecStart=/home/ubuntu/.local/bin/anvil cloud serve --config /home/ubuntu/.config/anvil/cloud-server/server.json
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ubuntu/.config/anvil/cloud-server
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

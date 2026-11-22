@@ -335,6 +335,39 @@ Notes for gateways:
 - `/cost` always shows token counts. Dollar estimates appear only for known Claude models; for others, set `price_input` and `price_output` (USD per million tokens) in the config file.
 - On OpenAI-format endpoints, `/effort low|medium|high|off` sets `reasoning_effort` (not sent by default).
 
+## Anvil cloud: sign in with Google, settings everywhere
+
+Instead of running `anvil --setup` on every machine, keep your provider, base URL, model, API key and other settings on your own server. Sign in once with Google and the terminal and desktop app fetch them.
+
+**On a new machine:**
+
+```bash
+anvil login anvil.example.com   # shows a code, opens the browser, you approve with Google
+anvil                           # settings come from the server
+anvil whoami                    # which account and server this machine uses
+anvil logout                    # sign out and revoke this machine's sign-in
+```
+
+In the desktop app: Settings → Anvil cloud → enter the server → Sign in with Google. While signed in, changes you make in Settings (or with `anvil --setup`) are saved to the server, so every machine gets them on its next start.
+
+**What is stored where:** the server keeps your settings encrypted (Fernet, AES + HMAC) with a master key in a separate `0600` file. Each machine saves only the server address and a sign-in token in `~/.config/anvil/cloud.json` (readable only by you). The API key is fetched at startup and kept in memory, never written to disk. Sign-in tokens last 30 days from last use, short-lived access tokens 1 hour; revoke any machine from the server's web page. If the server is unreachable, Anvil falls back to the local settings and says so. Set `ANVIL_CLOUD=0` to ignore cloud settings for one run.
+
+**Run the server** (e.g. on your Oracle Ubuntu box, behind Caddy for HTTPS):
+
+1. Install with the cloud extra: `pip install 'anvil-code[cloud]'` (or `pip install cryptography` next to an existing install).
+2. Create a Google OAuth client: in [Google Cloud Console](https://console.cloud.google.com/), open Google Auth Platform (APIs & Services → OAuth consent screen), set it up as External, and add your Gmail under Audience → Test users. Then Clients → Create client → **Web application**, with authorized redirect URI `https://anvil.example.com/auth/callback`. Only the `openid email profile` scopes are used, so no Google review is needed.
+3. Run `anvil cloud init` and enter the public URL, client ID, client secret and the Google emails allowed to sign in. It writes `~/.config/anvil/cloud-server/server.json` (`0600`); the client secret can instead come from `ANVIL_GOOGLE_CLIENT_SECRET`.
+4. Point Caddy at it (Caddy gets the HTTPS certificate):
+   ```
+   anvil.example.com {
+       reverse_proxy 127.0.0.1:8787
+   }
+   ```
+5. Start it: `anvil cloud serve`, or as a service with [`server/anvil-cloud.service`](server/anvil-cloud.service).
+6. Open `https://anvil.example.com`, sign in, and save your provider, base URL, model and key.
+
+Only emails in `allowed_emails` can sign in. Back up `master.key` together with `anvil-cloud.db`: without the key the saved settings can't be decrypted.
+
 ## Use
 
 ```bash
@@ -415,7 +448,8 @@ The tests use fake model servers, so they need no API key. Browser and web-app t
 - `anvil/plugins.py`, `anvil/schedules.py`, `anvil/artifacts.py`, `anvil/search.py`: plugins, scheduled tasks, artifacts, search
 - `anvil/extensions.py`: how connector and artifact tools plug into the agent; `anvil/extras_cli.py`: their terminal commands
 - `anvil/safety.py`: destructive-command detection, policy limits, backups
-- `server/`: agent user setup and the Caddy helper
+- `server/`: agent user setup, the Caddy helper and the Anvil cloud systemd unit
+- `anvil/cloud/`: Anvil cloud server (Google sign-in, encrypted settings) and the `anvil login` client
 - `android/`: Kotlin client and guide for Android apps
 - `anvil/gui/`: desktop and web app (local server in `server.py` and `extras_api.py`, interface in `static/index.html` and `static/extras.js`)
 

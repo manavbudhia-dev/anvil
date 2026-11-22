@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Anvil cloud**: a self-hosted server (`anvil cloud serve`) where you sign in with Google and keep your provider, base URL, model, API key and settings, encrypted at rest. `anvil login <server>` (device-code sign-in) and the desktop app's Settings fetch them, so new machines need no `anvil --setup`. The key stays in memory on clients; sign-ins can be revoked per machine.
+
 ## 0.2.0
 
 - **`anvil --doctor`**: checks a real setup end to end (gateway, tool calling, prompt cache, keep-alive, browser, safety, phone access, files) and explains how to fix what fails. `--json` for sharing.
