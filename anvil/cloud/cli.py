@@ -17,6 +17,7 @@ anvil logout               sign out and forget the saved sign-in
 anvil whoami               show which account and server this machine uses
 anvil cloud init           create the server config (run on the server)
 anvil cloud serve          run the Anvil cloud server
+anvil cloud chat on|off    turn browser chat at <server>/app/ on or off (--workspace DIR)
 """
 
 
@@ -101,6 +102,37 @@ def cmd_cloud_init(argv: list[str]) -> int:
     return 0
 
 
+def cmd_cloud_chat(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="anvil cloud chat",
+                                description="Browser chat runs the agent on this server, as this user.")
+    p.add_argument("state", nargs="?", choices=("on", "off"))
+    p.add_argument("--workspace", help="Folder new chat sessions start in (default: your home folder)")
+    p.add_argument("--config", default=os.environ.get("ANVIL_CLOUD_CONFIG", str(SERVER_CONFIG)))
+    a = p.parse_args(argv)
+    path = Path(a.config).expanduser()
+    if not path.exists():
+        print(f"No server config at {path}. Run: anvil cloud init", file=sys.stderr)
+        return 1
+    cur = json.loads(path.read_text())
+    if a.workspace:
+        ws = Path(a.workspace).expanduser().resolve()
+        if not ws.is_dir():
+            print(f"{ws} is not a folder.", file=sys.stderr)
+            return 1
+        cur["chat_workspace"] = str(ws)
+    if a.state:
+        cur["chat"] = a.state == "on"
+    if a.state or a.workspace:
+        from ..fsutil import atomic_write_text
+        atomic_write_text(path, json.dumps(cur, indent=2), private=True)
+    on = bool(cur.get("chat"))
+    print(f"Browser chat is {'on' if on else 'off'}"
+          + (f": {cur.get('public_url', '')}/app/ (workspace {cur.get('chat_workspace') or '~'})" if on else "."))
+    if a.state or a.workspace:
+        print("Restart the server to apply it (e.g. systemctl --user restart anvil-cloud).")
+    return 0
+
+
 def cmd_cloud_serve(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="anvil cloud serve")
     p.add_argument("--config", default=os.environ.get("ANVIL_CLOUD_CONFIG", str(SERVER_CONFIG)))
@@ -125,6 +157,8 @@ def cmd_cloud_serve(argv: list[str]) -> int:
     srv = serve(cfg)
     print(f"Anvil cloud listening on http://{cfg.host}:{cfg.port}, public at {cfg.public_url}")
     print(f"Allowed: {', '.join(cfg.allowed_emails)}")
+    if cfg.chat:
+        print(f"Browser chat: {cfg.public_url}/app/ (workspace {cfg.chat_workspace or '~'})")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -149,6 +183,8 @@ def dispatch(argv: list[str]) -> int | None:
             return cmd_cloud_init(rest[1:])
         if sub == "serve":
             return cmd_cloud_serve(rest[1:])
+        if sub == "chat":
+            return cmd_cloud_chat(rest[1:])
         print(USAGE)
         return 0 if sub in ("", "help", "-h", "--help") else 1
     return None
