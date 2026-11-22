@@ -7,8 +7,6 @@
 - **Optional sandbox** for the bash tool (`"sandbox": {"mode": "auto"}`, per user or per project): bubblewrap or firejail on Linux, sandbox-exec on macOS, Docker/Podman anywhere. Only the project folder is writable, secrets are hidden, network can be cut, and admins can require it in the policy file.
 
 - **Anvil cloud**: a self-hosted server (`anvil cloud serve`) where you sign in with Google and keep your provider, base URL, model, API key and settings, encrypted at rest. `anvil login <server>` (device-code sign-in) and the desktop app's Settings fetch them, so new machines need no `anvil --setup`. The key stays in memory on clients; sign-ins can be revoked per machine.
-- **Simpler terminal, and Hinglish**: approvals take one key (`y` / `a` / `n`, no Enter), show a one-line plain description of each command, and collapse long commands (`v` shows all). Command output shows ✓/✗ and the first few lines. Shift+Tab or `/auto` switches between ask, edits and auto. `"language": "hinglish"` (in `--setup`, `/lang`, the desktop app and Anvil cloud settings) makes Anvil reply in short, simple Hinglish and translates the terminal prompts.
-- Fixed: "always" now covers both file-edit tools, and when the machine's permission limit stops "always" from applying, Anvil says so instead of silently asking again.
 
 ## 0.2.0
 
