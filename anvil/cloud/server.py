@@ -36,7 +36,8 @@ MAX_BODY = 64 * 1024
 # ceiling, browser binary, web app host names, auto-approve rules) stay local.
 SYNCED = ("provider", "base_url", "api_key", "model", "effort", "max_tokens", "compat_mode",
           "reasoning_effort", "price_input", "price_output", "web_search", "cache_ttl",
-          "cache_keepalive_minutes", "auto_compact_tokens", "openai_cache_control", "browser_enabled")
+          "cache_keepalive_minutes", "auto_compact_tokens", "openai_cache_control", "browser_enabled",
+          "language")
 _DEFAULTS = Config()
 
 
@@ -61,6 +62,8 @@ def clean_settings(data: dict) -> dict:
         out[k] = v
     if "provider" in out and out["provider"] not in ("anthropic", "openai"):
         out["provider"] = "openai" if "openai" in out["provider"].lower() else "anthropic"
+    if "language" in out and out["language"] not in ("english", "hinglish"):
+        out["language"] = "english"
     if "base_url" in out:
         out["base_url"] = out["base_url"].rstrip("/")
         if out.get("provider", data.get("_provider_hint")) == "anthropic" and out["base_url"].endswith("/v1"):
@@ -207,6 +210,8 @@ def settings_form(s: dict, csrf: str) -> str:
                                 ("openai", "OpenAI format (chat completions gateway)")))
     efforts = "".join(f"<option{' selected' if s.get('effort', 'high') == e else ''}>{e}</option>"
                       for e in ("low", "medium", "high", "xhigh", "max"))
+    langs = "".join(f"<option value={v}{' selected' if s.get('language', 'english') == v else ''}>{t}</option>"
+                    for v, t in (("english", "English"), ("hinglish", "Hinglish (simple Hindi + English)")))
     return f"""<form method=post action=/settings class=card><h2>Settings</h2>
 <input type=hidden name=csrf value="{esc(csrf)}">
 <label>API format</label><select name=provider>{opts}</select>
@@ -214,6 +219,7 @@ def settings_form(s: dict, csrf: str) -> str:
 <label>Model</label><input name=model value="{esc(s.get('model', _DEFAULTS.model))}">
 <label>API key</label><input name=api_key type=password autocomplete=off placeholder="{esc(key_note)}">
 <label>Effort</label><select name=effort>{efforts}</select>
+<label>Reply language</label><select name=language>{langs}</select>
 <label>Reasoning effort (OpenAI format only, empty = don't send)</label><input name=reasoning_effort value="{esc(s.get('reasoning_effort', ''))}">
 <label>Price per 1M tokens, input / output (USD, for gateway models; 0 = unknown)</label>
 <div class=row style=margin-top:0><input name=price_input value="{esc(s.get('price_input', 0))}" style=flex:1><input name=price_output value="{esc(s.get('price_output', 0))}" style=flex:1></div>
