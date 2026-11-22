@@ -359,11 +359,16 @@ anvil -m sonnet              # cheaper model for this run
 cat error.log | anvil "why is this failing?"
 ```
 
-The agent can read, search, create and edit files, and run shell commands. Before each edit it shows a diff, and before each command it shows the command, then asks: `y` (yes), `a` (always allow this tool for the session), `n` (no), or type instructions to redirect it. Writes outside the project directory always ask, even with `--yolo`.
+The agent can read, search, create and edit files, and run shell commands. Before each edit it shows a diff, and before each command it shows a one-line plain description and the command (long ones are collapsed; press `v` to see all). Then press one key, no Enter needed: `y` (yes), `a` (yes, and stop asking for commands, or for file edits, this session), `n` (no), or just start typing to tell it what to do instead. Risky commands (deleting files, force pushes, protected paths) and writes outside the project always ask, even with `a` or `--yolo`.
+
+**Modes:** press **Shift+Tab** at the prompt (or type `/auto`) to switch between *ask* (asks before every change), *edits* (file edits run by themselves, commands ask) and *auto* (everything runs, risky commands still ask). The current mode is shown under the prompt.
+
+**Hinglish:** set `"language": "hinglish"` (asked in `anvil --setup`, or `/lang hinglish`, or in the desktop app and Anvil cloud settings) and Anvil replies in short, simple Hinglish, says in one line what it's doing and why, and the terminal prompts switch to Hinglish too. English is the default.
 
 ### Keys
 - **Enter** sends, **Alt+Enter** (or Esc then Enter) adds a newline
 - **Ctrl+C** interrupts the agent mid-turn; your next message redirects it
+- **Shift+Tab** switches mode: ask → edits → auto
 - **Ctrl+D** or `/exit` quits; the session is auto-saved
 
 ### Commands
@@ -377,6 +382,8 @@ The agent can read, search, create and edit files, and run shell commands. Befor
 | `/clear` | New conversation |
 | `/save [name]`, `/load name`, `/sessions` | Manage sessions |
 | `/yolo` | Toggle auto-approve |
+| `/auto [ask\|edits\|auto]` | Switch permission mode (same as Shift+Tab) |
+| `/lang english\|hinglish` | Reply language (saved) |
 | `/web` | Toggle web search (official Anthropic API only) |
 | `/setup`, `/provider` | Change or show endpoint, model and key |
 | `/skills` | List skills; `/skills sync`, `/skills add <git-url>` |

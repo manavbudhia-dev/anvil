@@ -75,6 +75,7 @@ TOOL_DEFS = [
         "description": "Run a shell command in the project root and return stdout/stderr and exit code. Use for builds, tests, git, installing packages. Avoid interactive commands.",
         "input_schema": _schema({
             "command": {"type": "string"},
+            "description": {"type": "string", "description": "One short plain-language line saying what this command does, shown to the user when asking for approval, e.g. 'Run the tests'"},
             "timeout": {"type": "integer", "description": "Seconds before the command is killed (default 120, max 600)"},
         }, ["command"]),
     },
@@ -188,6 +189,7 @@ class Tools:
         fn = getattr(self, f"_t_{name}", None)
         if fn is None:
             raise ToolError(f"unknown tool {name}")
+        args = {k: v for k, v in args.items() if k != "description"}  # for the user, not the tool
         return _truncate(fn(**args))
 
     # --- implementations ---------------------------------------------------

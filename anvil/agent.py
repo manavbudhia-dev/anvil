@@ -11,6 +11,7 @@ from .config import Config, cost_breakdown
 from .browser import BROWSER_ACTIONS, BROWSER_TOOL_DEFS, BROWSER_TOOL_NAMES, Browser, browser_dangers
 from .browser import available as browser_available
 from .safety import allowed, dangerous_command, mode_ceiling, protected_path
+from .simple import language_of, style_prompt, t
 from .skills import discover, expand_invocation
 from .tools import MUTATING_TOOLS, TOOL_DEFS, ToolError, Tools, shell_name, validate_input, NO_WINDOW
 
@@ -37,7 +38,7 @@ SYSTEM_TEMPLATE = """You are Anvil, an AI coding agent running in the user's ter
 - Shell used by the bash tool: {shell}
 - Date: {today}
 - Git repository: {is_git}
-{skills}{project_docs}"""
+{skills}{project_docs}{style}"""
 
 
 def _project_docs(root: Path) -> str:
@@ -58,7 +59,7 @@ def _skills_section(root: Path) -> str:
             "Load the skill before starting that kind of task.\n" + "\n".join(lines) + "\n")
 
 
-def build_system_prompt(root: Path) -> str:
+def build_system_prompt(root: Path, language: str = "english") -> str:
     try:
         is_git = subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True,
@@ -69,7 +70,7 @@ def build_system_prompt(root: Path) -> str:
     return SYSTEM_TEMPLATE.format(
         root=root, platform=f"{platform.system()} {platform.release()}", shell=shell_name(),
         today=date.today().isoformat(), is_git="yes" if is_git else "no",
-        skills=_skills_section(root), project_docs=_project_docs(root),
+        skills=_skills_section(root), project_docs=_project_docs(root), style=style_prompt(language),
     )
 
 
@@ -85,7 +86,7 @@ class Agent:
         self.tools = Tools(self.root)
         self.backend = make_backend(config, ui)
         self.messages: list[dict] = []
-        self.system = build_system_prompt(self.root)
+        self.system = build_system_prompt(self.root, language_of(self.config))
         self.auto_approve_all = auto_approve_all
         self.accept_edits = False
         self._element: dict | None = None
@@ -132,11 +133,11 @@ class Agent:
     def reset_system(self) -> None:
         """Refresh the system prompt (e.g. after skills changed). Only safe between conversations
         or when the user accepts a cache miss; history is kept."""
-        self.system = build_system_prompt(self.root)
+        self.system = build_system_prompt(self.root, language_of(self.config))
 
     def reset(self) -> None:
         self.messages = []
-        self.system = build_system_prompt(self.root)
+        self.system = build_system_prompt(self.root, language_of(self.config))
 
     @property
     def browser_enabled(self) -> bool:
@@ -298,6 +299,30 @@ class Agent:
             return False, []
         return True, []
 
+    @property
+    def mode(self) -> str:
+        """The permission mode: ask, edits (file edits run by themselves) or auto."""
+        return "auto" if self.auto_approve_all else "edits" if self.accept_edits else "ask"
+
+    def set_mode(self, mode: str) -> str:
+        """Switch the permission mode, capped at the ceiling. Returns the mode now in effect."""
+        if mode not in ("ask", "edits", "auto"):
+            mode = "ask"
+        if not allowed(mode, self.ceiling):
+            mode = self.ceiling
+        self.auto_approve_all = mode == "auto"
+        self.accept_edits = mode == "edits"
+        return mode
+
+    def _explain_always(self, name: str) -> None:
+        """Say plainly what "always" did, or that the permission limit keeps the question coming."""
+        lang = language_of(self.config)
+        is_edit = name in ("write_file", "edit_file")
+        if not allowed("edits" if is_edit else "auto", self.ceiling):
+            self.ui.notice(t(lang, "always_blocked", ceiling=self.ceiling))
+        else:
+            self.ui.notice(t(lang, "always_on_edit" if is_edit else "always_on_bash" if name == "bash" else "always_on_other"))
+
     def _needs_approval(self, name: str, args: dict) -> bool:
         return self._approval(name, args)[0]
 
@@ -319,7 +344,8 @@ class Agent:
             if decision == "always" and dangers:
                 decision = "yes"  # a destructive call is approved once, never for the session
             if decision == "always":
-                self.session_approved.add(name)
+                self.session_approved.update(("write_file", "edit_file") if name in ("write_file", "edit_file") else (name,))
+                self._explain_always(name)
             elif decision != "yes":
                 msg = "The user declined this tool call."
                 if isinstance(decision, str) and decision not in ("no", ""):
