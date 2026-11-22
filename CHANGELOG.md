@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Undo**: Anvil records the project before each turn that changes files, so `/undo` (or **Undo** in the desktop app) puts files back and removes the turn from the chat, including changes made by shell commands. `/checkpoints` lists them; `/undo N` goes back several turns, `/undo code` keeps the chat. Stored in a private git repository, never in your project's `.git`.
+- **Installer**: the one-line install works out of the box (`DEFAULT_REPO` points to github.com/manavbudhia-dev/anvil). Package installs show their progress, and on a fresh Ubuntu server the installer waits for automatic updates to release apt's lock with a message instead of looking frozen.
 - **Anvil cloud**: a self-hosted server (`anvil cloud serve`) where you sign in with Google and keep your provider, base URL, model, API key and settings, encrypted at rest. `anvil login <server>` (device-code sign-in) and the desktop app's Settings fetch them, so new machines need no `anvil --setup`. The key stays in memory on clients; sign-ins can be revoked per machine.
 
 ## 0.2.0

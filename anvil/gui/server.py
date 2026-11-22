@@ -18,6 +18,7 @@ import anthropic
 import openai
 
 from ..agent import Agent, Interrupted
+from ..checkpoints import forget_session as forget_checkpoints
 from ..fsutil import atomic_write_text
 from ..skills import add_repo, display_text, sync_dirs
 from ..config import CONFIG_DIR, EFFORTS, SESSIONS_DIR, Config, price_for, resolve_model
@@ -221,6 +222,13 @@ def messages_to_items(messages: list[dict]) -> list[dict]:
     return items
 
 
+def checkpoints_view(s: "Session") -> dict:
+    cps = s.agent.checkpoints
+    items = [{"n": c["n"], "time": c["time"], "prompt": c["prompt"], "files": c["changed"],
+              "chat": c.get("msg_index") is not None} for c in reversed(cps.items())]
+    return {"checkpoints": items, "checkpoint_mode": cps.mode() if items else ""}
+
+
 def session_title(messages: list[dict]) -> str:
     for m in messages:
         if m["role"] != "user":
@@ -373,8 +381,15 @@ class App:
             s.deleted = True  # the running thread's final save would otherwise re-create the file
             s.ui.cancel.set()
         p = SESSIONS_DIR / f"{sid}.json"
+        root = str(s.agent.root) if s else ""
+        if not root and p.exists():
+            try:
+                root = json.loads(p.read_text()).get("root", "")
+            except (OSError, ValueError):
+                pass
         if p.exists():
             p.unlink()
+        forget_checkpoints(sid, root)
 
     def send(self, s: Session, text: str) -> None:
         if text.startswith("/"):
@@ -418,6 +433,23 @@ class App:
         except BaseException:
             s.finish()
             raise
+
+    def undo(self, s: Session, n, keep_chat: bool) -> dict:
+        from ..checkpoints import CheckpointError
+
+        if not s.try_start():
+            raise ValueError("Wait for the current turn to finish, or stop it, before undoing.")
+        try:
+            res = s.agent.checkpoints.undo(int(n) if n not in (None, "") else None, rewind_chat=not keep_chat)
+        except CheckpointError as e:
+            raise ValueError(f"Can't undo: {e}") from e
+        finally:
+            s.finish()
+        if s.agent.messages:
+            s.save()
+        else:  # nothing left to resume: don't bring the undone chat back on restart
+            (SESSIONS_DIR / f"{s.sid}.json").unlink(missing_ok=True)
+        return res
 
     def refresh_skills(self) -> None:
         for s in self.sessions.values():
@@ -596,6 +628,11 @@ def make_handler(app: App):
                 return self._send(200, qr_svg(app.connect_url()), "image/svg+xml")
             if url.path == "/api/events":
                 return self._events()
+            if url.path.startswith("/api/sessions/") and url.path.endswith("/checkpoints"):
+                s = app.get_session(url.path.split("/")[3])
+                if not s:
+                    return self._json({"error": "not found"}, 404)
+                return self._json(checkpoints_view(s))
             if url.path.startswith("/api/sessions/"):
                 s = app.get_session(url.path.split("/")[3])
                 if not s:
@@ -670,6 +707,10 @@ def make_handler(app: App):
                         s.ui.resolve(data.get("req_id", ""), data.get("decision") or "no")
                     elif action == "mode":
                         s.set_mode(data.get("mode", "ask"))
+                    elif action == "undo":
+                        res = app.undo(s, data.get("n"), bool(data.get("keep_chat")))
+                        return self._json({"meta": s.meta(), "undo": res, "items": messages_to_items(s.agent.messages),
+                                           **checkpoints_view(s)})
                     elif action == "compact":
                         if not s.try_start():
                             raise ValueError("Wait for the current turn to finish.")

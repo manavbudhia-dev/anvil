@@ -2,8 +2,8 @@
 # Anvil installer for Linux (Oracle Linux, RHEL, Fedora, Ubuntu, Debian) and macOS.
 #
 # From GitHub (one line):
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash
-#   (set DEFAULT_REPO below first, or pass ANVIL_REPO=https://github.com/OWNER/REPO.git)
+#   curl -fsSL https://raw.githubusercontent.com/manavbudhia-dev/anvil/main/install.sh | bash
+#   (installs from DEFAULT_REPO below; pass ANVIL_REPO=<git url> to use a fork)
 # From an unzipped copy:
 #   bash anvil/install.sh
 #
@@ -18,8 +18,8 @@
 #   ANVIL_NO_SETUP=1 don't run the setup wizard at the end
 set -Eeuo pipefail
 
-# After you push Anvil to GitHub, put its URL here so the one-liner needs no ANVIL_REPO.
-DEFAULT_REPO=""
+# Where the one-line install downloads Anvil from. Override with ANVIL_REPO for a fork.
+DEFAULT_REPO="https://github.com/manavbudhia-dev/anvil.git"
 
 PREFIX="${ANVIL_PREFIX:-$HOME/.anvil}"
 SRC="$PREFIX/src"
@@ -28,6 +28,8 @@ VENV="$PREFIX/venv"
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+# Run a command and show its output indented, so long package installs visibly make progress.
+shown() { "$@" 2>&1 | while IFS= read -r line; do printf '    %s\n' "$line"; done; }
 
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; elif command -v sudo >/dev/null; then SUDO="sudo"; else SUDO=""; fi
 OS="$(uname -s)"
@@ -41,11 +43,36 @@ find_python() {
   return 1
 }
 
+# apt waits up to this long for the package lock (apt 1.9.11+; older apt ignores the option).
+APT_OPTS=(-q -o DPkg::Lock::Timeout=600)
+
+apt_busy() {
+  pgrep -x 'apt|apt-get|dpkg|unattended-upgr' >/dev/null 2>&1 && return 0
+  command -v fuser >/dev/null || return 1
+  $SUDO fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1
+}
+
+# On a fresh cloud server (Oracle, AWS, ...) unattended-upgrades often holds the apt lock for
+# several minutes after boot. Say so instead of looking frozen.
+wait_for_apt() {
+  local waited=0 limit="${ANVIL_APT_WAIT:-900}"
+  apt_busy || return 0
+  say "Another package install is running (usually automatic updates after boot); waiting for it to finish"
+  while apt_busy; do
+    if [ "$waited" -ge "$limit" ]; then
+      die "apt is still busy after ${limit}s. Check with: ps aux | grep -E 'apt|dpkg|unattended' and run this installer again"
+    fi
+    sleep 5; waited=$((waited + 5))
+    [ $((waited % 30)) -eq 0 ] && printf '    still waiting (%ss)...\n' "$waited"
+  done
+  say "apt is free, continuing"
+}
+
 install_packages() {
   if [ "$OS" = "Darwin" ]; then
     command -v brew >/dev/null || die "Install Homebrew first (https://brew.sh), then run this again."
     say "Installing packages with Homebrew"
-    brew install python@3.12 git ripgrep tmux >/dev/null
+    shown brew install python@3.12 git ripgrep tmux
     return
   fi
   if [ -z "$SUDO" ] && [ "$(id -u)" -ne 0 ]; then
@@ -55,7 +82,7 @@ install_packages() {
   if command -v dnf >/dev/null || command -v yum >/dev/null; then
     local pm; pm="$(command -v dnf || command -v yum)"
     say "Installing packages with $(basename "$pm")"
-    $SUDO "$pm" install -y git tar unzip tmux >/dev/null
+    shown $SUDO "$pm" install -y git tar unzip tmux
     if ! find_python >/dev/null; then
       $SUDO "$pm" install -y python3.12 python3.12-pip >/dev/null 2>&1 \
         || $SUDO "$pm" install -y python3.11 python3.11-pip >/dev/null 2>&1 \
@@ -65,9 +92,10 @@ install_packages() {
   elif command -v apt-get >/dev/null; then
     say "Installing packages with apt"
     export DEBIAN_FRONTEND=noninteractive
-    $SUDO apt-get update -qq >/dev/null
-    $SUDO apt-get install -y -qq git unzip tmux python3 python3-venv python3-pip >/dev/null
-    $SUDO apt-get install -y -qq ripgrep >/dev/null 2>&1 || true
+    wait_for_apt
+    shown $SUDO apt-get "${APT_OPTS[@]}" update
+    shown $SUDO apt-get "${APT_OPTS[@]}" install -y git unzip tmux python3 python3-venv python3-pip
+    shown $SUDO apt-get "${APT_OPTS[@]}" install -y ripgrep || true
   elif command -v apk >/dev/null; then
     say "Installing packages with apk"
     $SUDO apk add --no-cache git bash tmux python3 py3-pip ripgrep >/dev/null
