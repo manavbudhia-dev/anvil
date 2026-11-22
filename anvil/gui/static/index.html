@@ -1017,6 +1017,7 @@ async function openThread(tid) {
   const d = await api(`/api/sessions/${tid}`);
   if (d.meta.project_id && (state.project !== d.meta.project_id || !state.meta || state.meta.kind !== "chat")) await openProject(d.meta.project_id);
   state.thread = tid; threadView.sid = tid;
+  mergeRow(d.meta);  // the sidebar may not have seen this thread's latest status event yet
   setThreadMeta(d.meta); threadView.render(d.items, d.pending); threadView.setRunning(d.meta.running);
   document.body.classList.add("panel-open"); renderSessions();
   if (!isMobile()) $("#tp-input").focus();

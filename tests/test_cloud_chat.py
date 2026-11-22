@@ -232,6 +232,6 @@ def test_projects_and_threads_in_cloud_chat(chat, project):
         page.wait_for_selector("body.panel-open .decision")
         page.click(".decision .opt:has-text('Markdown')")
         page.wait_for_function("document.querySelector('#tp-status').textContent === 'Done'")
-        assert page.locator(".thr.active .sdot.done").count() == 1
+        page.wait_for_selector(".thr.active .sdot.done")
         browser.close()
     assert errors == []

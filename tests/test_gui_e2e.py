@@ -141,14 +141,14 @@ def test_project_chat_threads_and_decisions(app_url, project, tmp_path):
         page.click(".tool.thread-link summary")
         page.wait_for_selector("body.panel-open .decision")
         assert page.locator("#tp-status").inner_text() == "Needs you"
-        assert page.locator(".thr.active .sdot.needs_you").count() == 1
+        page.wait_for_selector(".thr.active .sdot.needs_you")
         assert page.locator("#tp-check .ci").count() == 2
         page.screenshot(path=str(shots / "decision.png"))
         page.click(".decision .opt:has-text('Short')")
         page.wait_for_function("document.querySelector('#tp-status').textContent === 'Done'")
         page.wait_for_selector("#tp-transcript .msg.md:has-text('Wrote a short README.')")
         assert page.locator("#tp-check .ci.done").count() == 2
-        assert page.locator(".thr.active .sdot.done").count() == 1
+        page.wait_for_selector(".thr.active .sdot.done")
         # steering a finished thread sends straight away
         rs.thread = [text("Added a license section too.")]
         page.fill("#tp-input", "add a license section")
