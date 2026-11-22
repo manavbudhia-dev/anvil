@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Projects**: a folder with its own chat, instructions and memory. Create them in the desktop app sidebar or with `anvil project new`; open the project chat in the terminal with `anvil --project NAME`.
+- **Threads**: the project chat starts background agents for separate tasks. Each shows a live checklist and a status (working, needs you, done, failed, stopped) in the sidebar, opens in a side panel, can be steered while it runs, and reports its result back to the project chat.
+- **Decision cards**: an agent can ask you a multiple-choice question and wait for your pick. Open approval and decision cards now come back after reloading the app.
+
 ## 0.2.0
 
 - **`anvil --doctor`**: checks a real setup end to end (gateway, tool calling, prompt cache, keep-alive, browser, safety, phone access, files) and explains how to fix what fails. `--json` for sharing.
