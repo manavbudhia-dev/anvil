@@ -530,6 +530,9 @@ def interactive(agent: Agent) -> None:
 
 
 def main() -> None:
+    from .extras_cli import COMMANDS, main as extras_main
+    if len(sys.argv) > 1 and sys.argv[1] in COMMANDS:  # anvil connectors|plugins|schedule|artifacts|search
+        sys.exit(extras_main(sys.argv[1:]))
     parser = argparse.ArgumentParser(prog="anvil", description="A terminal coding agent on your own Anthropic API key.")
     parser.add_argument("prompt", nargs="*", help="Run this prompt non-interactively and exit (same as -p)")
     parser.add_argument("-p", "--print", dest="print_prompt", help="Run one prompt non-interactively and exit")

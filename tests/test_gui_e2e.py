@@ -104,3 +104,63 @@ def test_skill_picker(app_url):
         assert '<skill name="review"' in first
         browser.close()
     assert errors == []
+
+
+def test_extras_panels(app_url, project, tmp_path):
+    """Search, artifacts, connectors, scheduled tasks, plugins and browser panels load and work."""
+    import sys
+    from pathlib import Path
+
+    from playwright.sync_api import sync_playwright
+
+    import mcp_fake
+    from anvil import artifacts, connectors, schedules
+    url, fake = app_url
+    art = artifacts.save("Pricing page", "html", "<h1 id='x'>Hello from an artifact</h1>")
+    connectors.save_connector({"preset": "custom-stdio", "name": "Fake tools",
+                               "command": f'"{sys.executable}" "{Path(mcp_fake.__file__)}"'})
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw)
+            page.goto(url)
+            page.wait_for_selector("body[data-ready='1']")
+            # search
+            page.keyboard.press("Control+k")
+            page.fill(".x-search", "pricing")
+            page.wait_for_selector(".x-res:has-text('Pricing page')")
+            page.keyboard.press("Enter")
+            frame = page.frame_locator(".x-view iframe")
+            assert frame.locator("#x").inner_text() == "Hello from an artifact"
+            # the artifact frame has no access to the app (sandboxed, opaque origin)
+            assert page.locator(".x-view iframe").get_attribute("sandbox").find("allow-same-origin") == -1
+            # connectors: test the fake server
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=connectors]")
+            page.click(".x-row:has-text('Fake tools') >> button:text-is('Test')")
+            page.wait_for_selector(".x-row:has-text('Connected · 2 tools')")
+            assert page.locator(".x-tile:has-text('Notion')").count() == 1
+            # scheduled task
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=scheduled]")
+            page.click("button:text-is('New scheduled task')")
+            page.fill(".x-form .nm", "Nightly tests")
+            page.fill(".x-form .pr", "run the tests")
+            page.select_option(".x-form .when", "weekdays")
+            page.wait_for_selector(".x-form .nx:has-text('Weekdays at 09:00')")
+            page.click(".x-form >> button:text-is('Create task')")
+            page.wait_for_selector(".x-row:has-text('Nightly tests')")
+            assert schedules.load()[0]["cron"] == "0 9 * * 1-5"
+            # plugins and browser panels render
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=plugins]")
+            page.wait_for_selector("text=No plugins installed yet.")
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=browser]")
+            page.wait_for_selector(".x-row:has-text('Browser tools')")
+            browser.close()
+        assert errors == []
+    finally:
+        connectors.manager().close_all()
+        connectors.CONNECTORS_FILE.unlink(missing_ok=True)
+        schedules.SCHEDULES_FILE.unlink(missing_ok=True)
+        artifacts.delete(art["id"])

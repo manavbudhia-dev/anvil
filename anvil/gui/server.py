@@ -18,6 +18,8 @@ import anthropic
 import openai
 
 from ..agent import Agent, Interrupted
+from .. import extensions
+from . import extras_api
 from ..fsutil import atomic_write_text
 from ..skills import add_repo, display_text, sync_dirs
 from ..config import CONFIG_DIR, EFFORTS, SESSIONS_DIR, Config, price_for, resolve_model
@@ -29,6 +31,7 @@ PUBLIC_FILES = {  # served without a token: the app shell and its install assets
     "/sw.js": ("sw.js", "text/javascript"),
     "/icon-192.png": ("icon-192.png", "image/png"),
     "/icon-512.png": ("icon-512.png", "image/png"),
+    "/extras.js": ("extras.js", "text/javascript"),
 }
 
 
@@ -57,7 +60,7 @@ def tool_label(name: str, args) -> str:
     key = TOOL_ARG_KEYS.get(name)
     if key and isinstance(args, dict):
         return str(args.get(key, "") or "")
-    return ""
+    return extensions.label(name)
 
 
 class Hub:
@@ -551,6 +554,9 @@ def make_handler(app: App):
                 return self._send(200, qr_svg(app.connect_url()), "image/svg+xml")
             if url.path == "/api/events":
                 return self._events()
+            routed = self._extras("GET", url.path, q, {})
+            if routed:
+                return
             if url.path.startswith("/api/sessions/"):
                 s = app.get_session(url.path.split("/")[3])
                 if not s:
@@ -565,6 +571,8 @@ def make_handler(app: App):
             if url.path.startswith("/api/sessions/"):
                 app.delete_session(url.path.split("/")[3])
                 return self._json({"ok": True})
+            if self._extras("DELETE", url.path, parse_qs(url.query), {}):
+                return
             self._json({"error": "not found"}, 404)
 
         def do_POST(self):
@@ -594,6 +602,8 @@ def make_handler(app: App):
                 if url.path == "/api/pick-folder":
                     path = app.pick_folder() if app.pick_folder else None
                     return self._json({"path": path})
+                if self._extras("POST", url.path, parse_qs(url.query), data):
+                    return
                 if url.path == "/api/sessions":
                     s = app.new_session(data.get("root"))
                     return self._json({"meta": s.meta(), "items": []})
@@ -629,6 +639,17 @@ def make_handler(app: App):
             except (anthropic.APIError, openai.APIError) as e:
                 return self._json({"error": str(e)}, 502)
             self._json({"error": "not found"}, 404)
+
+        def _extras(self, method: str, path: str, query: dict, data: dict) -> bool:
+            """Connectors, plugins, schedules, artifacts, search, browser (anvil/gui/extras_api.py)."""
+            try:
+                routed = extras_api.handle(app, method, path, query, data)
+            except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+                routed = (400, {"error": str(e)})
+            if routed is None:
+                return False
+            self._json(routed[1], routed[0])
+            return True
 
         def _events(self):
             self.send_response(200)
@@ -688,5 +709,6 @@ def start_server(app: App, port: int = 0) -> ThreadingHTTPServer:
     server = _Server(("127.0.0.1", port), make_handler(app))
     app.port = server.server_address[1]
     server.daemon_threads = True
+    extras_api.attach(app)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

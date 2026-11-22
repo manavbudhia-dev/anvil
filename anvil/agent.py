@@ -10,6 +10,7 @@ from .backends import MalformedToolInput, make_backend
 from .config import Config, cost_breakdown
 from .browser import BROWSER_ACTIONS, BROWSER_TOOL_DEFS, BROWSER_TOOL_NAMES, Browser, browser_dangers
 from .browser import available as browser_available
+from . import extensions
 from .safety import allowed, dangerous_command, mode_ceiling, protected_path
 from .skills import discover, expand_invocation
 from .tools import MUTATING_TOOLS, TOOL_DEFS, ToolError, Tools, shell_name, validate_input, NO_WINDOW
@@ -146,6 +147,7 @@ class Agent:
         tools = list(TOOL_DEFS)
         if self.browser_enabled:
             tools += BROWSER_TOOL_DEFS
+        tools += extensions.tool_defs(self)
         if self.config.web_search and self.backend.supports_web_search:
             tools.append({"type": "web_search_20260209", "name": "web_search", "max_uses": 5})
         return tools
@@ -263,6 +265,9 @@ class Agent:
         return []
 
     def _preview(self, name: str, args: dict) -> str:
+        ext = extensions.find(name)
+        if ext:
+            return ext.preview(self, name, args)
         if name not in BROWSER_TOOL_NAMES:
             return self.tools.preview(name, args)
         info = self._element if self._element and "error" not in self._element else None
@@ -282,6 +287,16 @@ class Agent:
     def _approval(self, name: str, args: dict) -> tuple[bool, list[str]]:
         """Whether a human must approve this call, and any danger warnings to show them.
         Dangerous calls always ask, whatever the mode or earlier "always allow" answers."""
+        ext = extensions.find(name)
+        if ext:
+            needs, dangers = ext.approval(self, name, args)
+            if dangers:
+                return True, dangers
+            if not needs or (self.auto_approve_all and allowed("auto", self.ceiling)):
+                return False, []
+            if name in self.session_approved and allowed("auto", self.ceiling):
+                return False, []
+            return True, []
         dangers = self.dangers(name, args)
         if dangers:
             return True, dangers
@@ -303,7 +318,8 @@ class Agent:
 
     def _run_tool(self, block: dict) -> dict:
         name, args, tid = block["name"], block.get("input"), block["id"]
-        err = validate_input(name, args)
+        ext = extensions.find(name)
+        err = ext.validate(name, args) if ext else validate_input(name, args)
         if err:
             payload = json.dumps({"INVALID_JSON": err, "received": args}, default=str)
             self.ui.tool_result(name, args if isinstance(args, dict) else {}, payload, True)
@@ -330,7 +346,9 @@ class Agent:
         self._last_activity = time.monotonic()
         self.ui.tool_running(name, args)
         try:
-            if name in BROWSER_TOOL_NAMES:
+            if ext:
+                result = ext.run(self, name, args)
+            elif name in BROWSER_TOOL_NAMES:
                 result = Browser.get(self.config).run(name, args, expect=self._element)
             else:
                 result = self.tools.run(name, args)

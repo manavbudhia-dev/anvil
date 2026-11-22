@@ -576,15 +576,15 @@ function addConfirm(ev) {
   const c = el("div", "confirm" + (dangers.length ? " danger" : ""));
   const isBash = ev.name === "bash";
   c.innerHTML = `<div class="head"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
-    <span>${isBash ? "Run this command?" : ev.name.startsWith("browser_") ? "Allow this browser action?" : ev.name === "write_file" ? "Create or overwrite this file?" : "Make this edit?"}</span><span class="p"></span></div>
+    <span>${isBash ? "Run this command?" : ev.name.startsWith("browser_") ? "Allow this browser action?" : ev.name === "write_file" ? "Create or overwrite this file?" : ev.name.startsWith("mcp__") ? "Allow this connector action?" : "Make this edit?"}</span><span class="p"></span></div>
     <div class="preview"></div>
     ${dangers.length ? `<div class="warn"><strong>Destructive: Anvil asks every time for this.</strong><ul>${dangers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div>` : ""}
     <div class="actions">${dangers.length
       ? '<button class="btn danger" data-d="yes">Allow once</button><button class="btn primary" data-d="no">Deny <kbd>↵</kbd></button>'
-      : `<button class="btn primary" data-d="yes">Allow <kbd>↵</kbd></button><button class="btn" data-d="always">Always allow ${isBash ? "commands" : ev.name.startsWith("browser_") ? ({ browser_click: "clicks", browser_type: "typing", browser_select: "choices", browser_press: "key presses" }[ev.name] || "this action") : "edits"} this session</button><button class="btn" data-d="no">Deny</button>`}
+      : `<button class="btn primary" data-d="yes">Allow <kbd>↵</kbd></button><button class="btn" data-d="always">Always allow ${isBash ? "commands" : ev.name.startsWith("browser_") ? ({ browser_click: "clicks", browser_type: "typing", browser_select: "choices", browser_press: "key presses" }[ev.name] || "this action") : ev.name.startsWith("mcp__") ? "this tool" : "edits"} this session</button><button class="btn" data-d="no">Deny</button>`}
     <input placeholder="Or tell Anvil what to do instead, then press Enter"></div>`;
   c.querySelector(".p").textContent = isBash ? "" : ev.label;
-  const isBrowser = ev.name.startsWith("browser_");
+  const isBrowser = ev.name.startsWith("browser_") || ev.name.startsWith("mcp__");
   c.querySelector(".preview").innerHTML = isBash ? `<pre>$ ${esc(ev.args.command || "")}</pre>` : isBrowser ? `<pre>${esc(ev.preview || "")}</pre>` : diffHtml(ev.preview || "");
   c.dataset.req = ev.req_id;
   const decide = (d) => { if (c.classList.contains("resolved")) return; c.classList.add("resolved"); api(`/api/sessions/${state.current}/approve`, { method: "POST", body: { req_id: ev.req_id, decision: d } }).catch((e) => toast(e.message)); };
@@ -908,5 +908,6 @@ if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWor
   if (!state.config.key_set) openSettings();
 })();
 </script>
+<script src="/extras.js"></script>
 </body>
 </html>
