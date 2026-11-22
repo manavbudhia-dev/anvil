@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Browser chat on Anvil cloud** (`anvil cloud chat on`): the desktop app's chat at `<server>/app/`, behind Google sign-in, runs the agent on the server from any browser or phone, with streaming, approvals, permission modes and settings saved on the server. Version 0.3.0, so `pip install --upgrade` picks it up.
 - **Stronger command safety**: commands are now parsed like a shell would (quotes, `$'...'`, brace expansion, variables, `sudo`/`env`/`xargs`/`find -exec` wrappers, `bash -c`, `eval`, heredocs, `cmd /c`, PowerShell `-Command`/`-EncodedCommand`) instead of matched with regexes, and interpreter one-liners (`python -c`, `node -e`, `perl -e`, `ruby -e`, `php -r`, `awk`) are checked for deleting files, running shell commands or hidden code. Piping downloaded or decoded text into a shell always asks. Protected paths now cover Linux, macOS and Windows (system folders, startup locations, credentials, the project's `.anvil/`), and cmd.exe/PowerShell destructive commands are detected.
 - **Optional sandbox** for the bash tool (`"sandbox": {"mode": "auto"}`, per user or per project): bubblewrap or firejail on Linux, sandbox-exec on macOS, Docker/Podman anywhere. Only the project folder is writable, secrets are hidden, network can be cut, and admins can require it in the policy file.
 

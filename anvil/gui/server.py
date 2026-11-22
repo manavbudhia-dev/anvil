@@ -432,6 +432,7 @@ class App:
         c = self.config
         return {"provider": c.resolved_provider(), "base_url": c.base_url, "model": c.model,
                 "effort": c.effort, "reasoning_effort": c.reasoning_effort, "compat_mode": c.compat_mode,
+                "language": c.language if c.language in ("english", "hinglish") else "english",
                 "price_input": c.price_input, "price_output": c.price_output,
                 "key_set": bool(c.resolved_key()), "efforts": list(EFFORTS),
                 "price_known": price_for(c.model, c) is not None, "cloud": self.cloud_view()}
@@ -496,6 +497,8 @@ class App:
             c.reasoning_effort = data["reasoning_effort"] or ""
         if "compat_mode" in data:
             c.compat_mode = bool(data["compat_mode"])
+        if data.get("language") in ("english", "hinglish"):
+            c.language = data["language"]  # applies from each session's next request
         for k in ("price_input", "price_output"):
             if k in data:
                 try:

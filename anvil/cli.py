@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -16,7 +17,8 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from rich.console import Console
+from prompt_toolkit.styles import Style
+from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -26,6 +28,8 @@ from rich.text import Text
 from . import __version__
 from .agent import Agent, Interrupted
 from .fsutil import atomic_write_text
+from .simple import (LANGUAGES, MODES, ask_key, bash_summary, clip, clip_tail, is_exit_word, language_of, mode_label,
+                     next_mode, one_line, parse_answer, t)
 from .skills import PERSONAL_DIR, add_repo, discover, sync_dirs
 from .config import CONFIG_DIR, EFFORTS, HISTORY_FILE, SESSIONS_DIR, Config, price_for, resolve_model
 
@@ -42,6 +46,8 @@ COMMANDS = {
     "/load": "Load a saved session: /load <name>",
     "/sessions": "List saved sessions",
     "/yolo": "Toggle auto-approving edits and shell commands",
+    "/auto": "Change mode: /auto ask|edits|auto, or just /auto to go to the next one (same as Shift+Tab)",
+    "/lang": "Reply language: /lang english|hinglish",
     "/web": "Toggle the web search tool",
     "/edit": "Compose a long prompt in $EDITOR",
     "/init": "Have the agent write an AGENTS.md for this project",
@@ -60,8 +66,9 @@ TOOL_ARG_KEYS = {"load_skill": "name", "read_file": "path", "write_file": "path"
 
 
 class TerminalUI:
-    def __init__(self, interactive: bool = True):
+    def __init__(self, interactive: bool = True, config: Config | None = None):
         self.interactive = interactive
+        self.config = config
         self._live: Live | None = None
         self._buf = ""
         self._thinking_open = False
@@ -111,21 +118,42 @@ class TerminalUI:
     def tool_call_streaming(self, name: str):
         pass
 
+    @property
+    def lang(self) -> str:
+        return language_of(self.config)
+
     def _label(self, name: str, args: dict) -> str:
         key = TOOL_ARG_KEYS.get(name)
-        val = str(args.get(key, "")) if key else ""
-        if len(val) > 100:
-            val = val[:97] + "..."
+        val = one_line(args.get(key, ""), 100) if key else ""
         return f"{name}({val})"
 
     def tool_running(self, name: str, args: dict):
+        desc = str(args.get("description") or "").strip() if name == "bash" else ""
+        if desc:  # say what it does in plain words; the command itself stays short and dim
+            desc = one_line(desc, 100)
+            room = max(20, console.width - len(desc) - 8)
+            console.print(Text.assemble(("● ", "cyan"), (desc, "bold"), (f"  $ {one_line(args.get('command', ''), room)}", "dim")))
+            return
         console.print(Text("● ", style="cyan") + Text(self._label(name, args), style="bold"))
 
     def tool_result(self, name: str, args: dict, result: str, is_error: bool):
+        lang = self.lang
+        max_lines = 3 if lang == "hinglish" else 6
+        if name == "bash" and not is_error:
+            status, body, failed = bash_summary(lang, result)
+            if status:
+                head = Text.assemble(("  ⎿ ", "dim"), (("✗ " if failed else "✓ ") + status, "red" if failed else "green"))
+                shown, earlier = clip_tail(body, max_lines)
+                if earlier:
+                    shown = t(lang, "earlier_lines", n=earlier) + "\n" + shown
+                if shown:
+                    head.append("\n    " + shown.replace("\n", "\n    "), style="dim")
+                console.print(head)
+                return
         lines = result.splitlines() or [""]
-        preview = "\n".join(lines[:6])
-        if len(lines) > 6:
-            preview += f"\n… (+{len(lines) - 6} lines)"
+        preview, more = clip(result, max_lines)
+        if more:
+            preview += "\n" + t(lang, "more_lines", n=more)
         style = "red" if is_error else "dim"
         if name in ("read_file",) and not is_error:
             preview = f"Read {len(lines)} lines"
@@ -144,29 +172,41 @@ class TerminalUI:
             return "no" if not dangers else (
                 "no. This is a destructive operation (" + "; ".join(dangers) + ") and needs a person to "
                 "approve it in an interactive session. Explain what you wanted to run and why instead.")
-        title = "Run command?" if name == "bash" else "Browser action?" if name.startswith("browser_") else f"{name}: {args.get('path', '')}"
-        lang = "bash" if name == "bash" else "text" if name.startswith("browser_") else "diff"
-        body = Syntax(preview, lang, word_wrap=True, theme="ansi_dark")
-        if dangers:
-            console.print(Panel(body, title=f"⚠ DESTRUCTIVE · {title}", border_style="red", expand=False,
-                                subtitle="; ".join(dangers)))
-        else:
-            console.print(Panel(body, title=title, border_style="yellow", expand=False))
-        try:
+        lang = self.lang
+        title = (t(lang, "run_title") if name == "bash" else t(lang, "browser_title") if name.startswith("browser_")
+                 else t(lang, "edit_title", path=args.get("path", "")))
+        syntax = "bash" if name == "bash" else "text" if name.startswith("browser_") else "diff"
+        desc = str(args.get("description") or "").strip() if name == "bash" else ""
+        full = bool(dangers)  # a risky call is always shown in full
+        while True:
+            shown, more = (preview, 0) if full else clip(preview, 4 if name == "bash" else 24, 400)
+            parts = [Text(desc, style="bold")] if desc else []
+            parts.append(Syntax(shown, syntax, word_wrap=True, theme="ansi_dark"))
+            if more:
+                parts.append(Text(t(lang, "more_lines_view", n=more), style="dim"))
             if dangers:
-                ans = console.input("[red bold]Type 'yes' to allow this once[/], anything else to deny (or type instructions): ").strip()
-                return "yes" if ans.lower() == "yes" else (ans if ans and ans.lower() not in ("n", "no") else "no")
-            ans = console.input("[yellow]Allow? [/][bold]y[/]es / [bold]a[/]lways this session / [bold]n[/]o (or type instructions): ").strip()
-        except (EOFError, KeyboardInterrupt):
-            raise KeyboardInterrupt
-        low = ans.lower()
-        if low in ("y", "yes", ""):
-            return "yes"
-        if low in ("a", "always"):
-            return "always"
-        if low in ("n", "no"):
-            return "no"
-        return ans
+                console.print(Panel(Group(*parts), title=t(lang, "danger_title", title=title), border_style="red",
+                                    expand=False, subtitle="; ".join(dangers)))
+            else:
+                console.print(Panel(Group(*parts), title=title, border_style="yellow", expand=False))
+            try:
+                if dangers:
+                    ans = console.input(t(lang, "danger_keys")).strip()
+                    return "yes" if ans.lower() == "yes" else (ans if ans and ans.lower() not in ("n", "no", "nahi") else "no")
+                console.print(t(lang, "keys") + (t(lang, "keys_more") if more else ""))
+                keys = {"y": "yes", "a": "always", "n": "no", **({"v": "view"} if more else {})}
+                if sys.stdin is not None and sys.stdin.isatty() and sys.stdout.isatty():
+                    ans = ask_key([("class:prompt", "❯ ")], keys)
+                else:
+                    ans = parse_answer(console.input("❯ "), keys)
+            except (EOFError, KeyboardInterrupt):
+                raise KeyboardInterrupt
+            if ans == "view":
+                full = True
+                continue
+            if ans == "no":
+                console.print(Text(t(lang, "denied"), style="dim"))
+            return ans
 
     def notice(self, msg: str):
         console.print(Text(f"! {msg}", style="yellow"))
@@ -236,6 +276,10 @@ def setup_wizard(config: Config) -> None:
     key = getpass.getpass("API key (leave empty to keep the current one): ").strip()
     if key:
         config.api_key = key
+    console.print(t(language_of(config), "setup_lang"))
+    current = "2" if language_of(config) == "hinglish" else "1"
+    lang = console.input(f"Choice [{current}]: ").strip() or current
+    config.language = "hinglish" if lang in ("2", "hinglish", "h") else "english"
     if save_to_cloud(config):
         return
     config.save()
@@ -289,7 +333,7 @@ def run_turn(agent: Agent, text: str) -> None:
     try:
         agent.send(text)
     except Interrupted:
-        console.print("[yellow]⏹ Interrupted.[/] [dim]Tell the agent what to do instead, or continue.[/]")
+        console.print(t(language_of(agent.config), "interrupted"))
     except (anthropic.AuthenticationError, openai.AuthenticationError):
         console.print("[red]Authentication failed: the endpoint rejected your API key. Use /key or /setup.[/]")
     except (anthropic.PermissionDeniedError, openai.PermissionDeniedError) as e:
@@ -409,6 +453,25 @@ def handle_command(agent: Agent, line: str) -> str | None:
             return None
         agent.auto_approve_all = not agent.auto_approve_all
         console.print(f"Auto-approve: [bold]{'ON — edits and commands run without asking' if agent.auto_approve_all else 'off'}[/]")
+    elif cmd == "/auto":
+        lang = language_of(cfg)
+        want = arg if arg in MODES else next_mode(agent.mode, agent.ceiling)
+        got = agent.set_mode(want)
+        console.print(t(lang, "mode_set", mode=f"{got} · {mode_label(lang, got)}"))
+        if got != want:
+            console.print(f"[dim]{t(lang, 'mode_limited', ceiling=agent.ceiling)}[/]")
+    elif cmd == "/lang":
+        if arg:
+            if arg.lower() not in LANGUAGES:
+                console.print(f"[red]Language must be one of {', '.join(LANGUAGES)}[/]")
+                return None
+            cfg.language = arg.lower()
+            if not save_to_cloud(cfg):
+                cfg.save()
+            agent.reset_system()
+            if agent.messages:
+                console.print("[dim]Note: the next request re-reads the conversation once (cache miss).[/]")
+        console.print(t(language_of(cfg), "lang_set", lang=language_of(cfg)))
     elif cmd == "/web":
         cfg.web_search = not cfg.web_search
         cfg.save()
@@ -496,6 +559,11 @@ def new_session_id() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
+def mode_toolbar(agent: Agent) -> list:
+    lang = language_of(agent.config)
+    return [("class:mode", f" ⏵ {t(lang, 'mode_line', mode=mode_label(lang, agent.mode))}")]
+
+
 def make_prompt_session(agent: Agent | None = None) -> PromptSession:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     kb = KeyBindings()
@@ -504,12 +572,23 @@ def make_prompt_session(agent: Agent | None = None) -> PromptSession:
     def _(event):
         event.current_buffer.insert_text("\n")
 
+    if agent is not None:
+        @kb.add("s-tab")
+        def _(event):
+            agent.set_mode(next_mode(agent.mode, agent.ceiling))
+            event.app.invalidate()
+
     return PromptSession(
         history=FileHistory(str(HISTORY_FILE)),
         completer=WordCompleter(list(COMMANDS) + ([f"/{n}" for n in agent.skills()] if agent else []), sentence=True),
         key_bindings=kb,
         multiline=False,
+        bottom_toolbar=(lambda: mode_toolbar(agent)) if agent is not None else None,
+        style=Style.from_dict({"bottom-toolbar": "noreverse", "mode": "#888888"}),
     )
+
+
+CTRL_C_QUIT_SECONDS = 3  # a second Ctrl+C at the prompt within this long quits
 
 
 def interactive(agent: Agent) -> None:
@@ -517,18 +596,25 @@ def interactive(agent: Agent) -> None:
         f"[bold]Anvil[/] v{__version__} · your terminal coding agent\n"
         f"[dim]model[/] {agent.config.model} · [dim]endpoint[/] {describe_endpoint(agent.config)}\n"
         f"[dim]cwd[/] {agent.root}" + (f" · [dim]permissions locked to[/] {agent.ceiling}" if agent.ceiling != "auto" else "") + "\n"
-        "[dim]/help for commands · Ctrl+C interrupts · Ctrl+D quits[/]",
+        f"[dim]{t(language_of(agent.config), 'banner_hint')}[/]",
         border_style="cyan"))
     session = make_prompt_session(agent)
+    last_ctrl_c = 0.0
     while True:
         try:
             line = session.prompt([("class:prompt", "\n❯ ")]).strip()
         except KeyboardInterrupt:
+            if time.monotonic() - last_ctrl_c < CTRL_C_QUIT_SECONDS:
+                break
+            last_ctrl_c = time.monotonic()
+            console.print(f"[dim]{t(language_of(agent.config), 'ctrl_c_again')}[/]")
             continue
         except EOFError:
             break
         if not line:
             continue
+        if is_exit_word(line):
+            break
         try:
             if line.startswith("/"):
                 prompt = handle_command(agent, line)
@@ -630,7 +716,7 @@ def main() -> None:
     one_shot = args.print_prompt or " ".join(args.prompt)
     ensure_configured(config)
 
-    ui = TerminalUI(interactive=not one_shot)
+    ui = TerminalUI(interactive=not one_shot, config=config)
     agent = Agent(config, root, ui, auto_approve_all=args.yolo)
     agent.session_id = new_session_id()
     if args.yolo and agent.ceiling != "auto":
