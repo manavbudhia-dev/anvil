@@ -100,6 +100,12 @@ def test_chat_page_and_csrf(chat):
         assert b.req("GET", path)[0] == 404
     assert b.req("POST", "/app/api/open", json_body={"url": "https://x"}, headers={"X-Anvil-Token": token})[0] == 404
     assert b.req("POST", "/app/api/cloud/login", json_body={}, headers={"X-Anvil-Token": token})[0] == 404
+    # Extras: the panels' script and APIs work, but nothing that installs or listens on the server.
+    assert b.req("GET", "/app/extras.js")[0] == 200
+    assert b.req("GET", "/app/api/connectors")[0] == 200
+    assert b.req("GET", "/app/api/search?q=x")[0] == 200
+    assert b.req("POST", "/app/api/browser/install", json_body={}, headers={"X-Anvil-Token": token})[0] == 404
+    assert b.req("POST", "/app/api/connectors/notion/login", json_body={}, headers={"X-Anvil-Token": token})[0] == 404
 
 
 def test_chat_only_for_chat_emails(chat):
@@ -210,5 +216,56 @@ def test_chat_in_a_real_phone_browser(chat, project):
         assert (project / "hi.txt").read_text() == "hi\n"
         page.click("#show-side")
         assert page.locator(".sess:has-text('write hi.txt')").count() == 1
+        # The extras panels work on the phone too.
+        page.click("#x-nav [data-panel=scheduled]")
+        page.wait_for_selector("button:text-is('New scheduled task')")
+        page.keyboard.press("Escape")
+        page.click("#show-side")
+        page.click("#x-nav [data-panel=connectors]")
+        page.wait_for_selector(".x-tile:has-text('Notion')")
+        page.click(".x-tile:has-text('Notion')")
+        page.wait_for_selector(".x-note:has-text('on the server')")
+        browser.close()
+    assert errors == []
+
+
+def test_projects_and_threads_in_cloud_chat(chat, project):
+    from test_browser import _browser_works
+    if not _browser_works():
+        pytest.skip("Playwright/Chromium not installed")
+    from playwright.sync_api import sync_playwright
+    from fakes import tool
+    from test_projects import RoleScript
+    app, port, fake = chat
+    rs = RoleScript(fake)
+    rs.chat = [tool("start_thread", title="Write notes", task="Write notes.txt."), text("Started a thread.")]
+    rs.thread = [tool("update_checklist", items=[{"text": "Write notes", "state": "doing"}]),
+                 tool("ask_user", question="Which format?", options=[{"label": "Plain"}, {"label": "Markdown"}]),
+                 tool("set_status", status="done", summary="Notes written."), text("Notes written.")]
+    b = Browser(port)
+    b.sign_in()
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        ctx = browser.new_context(viewport={"width": 1280, "height": 820})
+        ctx.add_cookies([{"name": "anvil_cloud", "value": b.cookies["anvil_cloud"], "url": f"http://127.0.0.1:{port}"}])
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/app/")
+        page.wait_for_selector("body[data-ready='1']")
+        page.click("#new-proj-btn")
+        assert not page.is_visible("#pm-browse")  # no folder picker on the server
+        page.fill("#pm-name", "Cloud proj")
+        page.fill("#pm-path", str(project))
+        page.click("#pm-save")
+        page.wait_for_selector("body.in-project")
+        page.fill("#input", "write notes")
+        page.press("#input", "Enter")
+        page.wait_for_selector(".tool.thread-link")
+        page.click(".tool.thread-link summary")
+        page.wait_for_selector("body.panel-open .decision")
+        page.click(".decision .opt:has-text('Markdown')")
+        page.wait_for_function("document.querySelector('#tp-status').textContent === 'Done'")
+        page.wait_for_selector(".thr.active .sdot.done")
         browser.close()
     assert errors == []

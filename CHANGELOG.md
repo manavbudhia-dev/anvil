@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Projects**: a folder with its own chat, instructions and memory. Create them in the desktop app sidebar or with `anvil project new`; open the project chat in the terminal with `anvil --project NAME`.
+- **Threads**: the project chat starts background agents for separate tasks. Each shows a live checklist and a status (working, needs you, done, failed, stopped) in the sidebar, opens in a side panel, can be steered while it runs, and reports its result back to the project chat.
+- **Decision cards**: an agent can ask you a multiple-choice question and wait for your pick. Open approval and decision cards now come back after reloading the app.
 - **Browser chat on Anvil cloud** (`anvil cloud chat on`): the desktop app's chat at `<server>/app/`, behind Google sign-in, runs the agent on the server from any browser or phone, with streaming, approvals, permission modes and settings saved on the server. Version 0.3.0, so `pip install --upgrade` picks it up.
 - **Undo**: Anvil records the project before each turn that changes files, so `/undo` (or **Undo** in the desktop app) puts files back and removes the turn from the chat, including changes made by shell commands. `/checkpoints` lists them; `/undo N` goes back several turns, `/undo code` keeps the chat. Stored in a private git repository, never in your project's `.git`.
 - **Installer**: the one-line install works out of the box (`DEFAULT_REPO` points to github.com/manavbudhia-dev/anvil). Package installs show their progress, and on a fresh Ubuntu server the installer waits for automatic updates to release apt's lock with a message instead of looking frozen.

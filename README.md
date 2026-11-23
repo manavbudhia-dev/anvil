@@ -98,6 +98,29 @@ Notes:
 - Windows SmartScreen may warn about an unsigned app the first time. Click **More info**, then **Run anyway**.
 - Commands run in `cmd.exe` (Anvil tells the model so). If you prefer bash, use the terminal version from Git Bash or WSL.
 
+## Projects and threads
+
+A **project** is a folder with its own chat, standing instructions and memory. Its **project chat** is a coordinator: answer quick questions there, or describe work and it starts **threads**, separate agents that each take one task and run in parallel in the background.
+
+- Each thread keeps a checklist you can watch, and shows its status in the sidebar: working, needs you, done, failed or stopped.
+- When a thread needs a decision only you can make, it puts a card with options in front of you and waits. Approvals for edits and commands work as usual.
+- Click a thread to open it in the side panel. Type in "Steer this thread" to add instructions; if it's busy, they run after its current step.
+- When a thread finishes, its result is passed to the project chat with your next message there.
+- Instructions (Project settings) go into every chat and thread in the project. Memory is a list of facts Anvil saves with its `remember` tool as it works; you can edit it in Project settings.
+- Threads start in the permission mode of the project chat.
+
+In the desktop app: **Project** in the sidebar creates one; **+ Thread** starts a thread yourself. In the terminal:
+
+```bash
+anvil project new "Shop backend" -C ~/code/shop -i "Run pytest before finishing"
+anvil project list
+anvil project show "Shop backend"     # threads, status, memory
+anvil --project "Shop backend"        # the same project chat, in the terminal
+anvil --resume thr_2026...            # continue a thread in the terminal
+```
+
+Threads are started from the desktop app; the terminal project chat can list them (`/threads`, `/memory`) but not start them. Projects are stored in `~/.config/anvil/projects/` as JSON with stable ids and timestamps.
+
 ## Skills
 
 Skills are reusable instructions Anvil loads when a task matches, like a checklist or a house style. Anvil sees each skill's name and description, and loads the full instructions only when needed. You can also run one directly:
@@ -194,6 +217,57 @@ anvil --install-browser
 - **Settings** (`~/.config/anvil/config.json`): `browser_enabled`, `browser_headless` (`auto`, `true` or `false`), `browser_executable` (use an installed Chrome).
 - On Oracle Linux/RHEL, Chromium needs some system libraries; `anvil --install-browser` prints the `dnf` command if they're missing.
 - **Which browser:** on Windows, Anvil uses the Microsoft Edge that comes with Windows, so nothing extra is downloaded. Then it tries Chrome, and as a last resort downloads Playwright's Chromium once. On macOS it tries Chrome first, on Linux Playwright's Chromium first. Force one with `browser_channel` (`msedge`, `chrome` or `chromium`) in the config.
+
+## Connectors (MCP)
+
+Connectors give Anvil tools from other apps through [MCP](https://modelcontextprotocol.io) servers. Open **Connectors** in the desktop app's sidebar, pick one, and fill in what it asks for. In the terminal you can use `anvil connectors presets`, then `anvil connectors add notion`, then `anvil connectors login notion`.
+
+| Preset | How it connects | What you need |
+|---|---|---|
+| Gmail, Drive & Calendar | `uvx workspace-mcp --tools gmail drive calendar` (local) | [uv](https://docs.astral.sh/uv/), Python 3.11+, and a Google OAuth client ID and secret with the APIs enabled |
+| Notion | `https://mcp.notion.com/mcp` | Sign in with your browser |
+| Slack | `https://mcp.slack.com/mcp` | Your own Slack app's client ID and secret, with the redirect URL `http://localhost:33418/callback` (Slack doesn't allow automatic app registration) |
+| GitHub | `https://api.githubcopilot.com/mcp/` | A personal access token |
+| Linear | `https://mcp.linear.app/mcp` | Sign in with your browser, or an API key |
+| Filesystem, Fetch | Reference MCP servers via `npx` and `uvx` | Node.js or uv |
+| Custom | Any remote URL (OAuth or bearer token), or any local command | |
+
+- **Tools:** each connector's tools show up as `mcp__<connector>__<tool>`. Servers connect the first time a session needs them. A broken server is skipped and doesn't stop the agent.
+- **Approvals:** tools that the server marks read-only run without asking. Every other tool asks in Ask and Edits mode, and runs freely in Bypass mode. Tools the server marks destructive always ask.
+- **Sign-in:** remote servers use MCP OAuth: discovery, automatic app registration, PKCE, and token refresh. The browser returns to `http://localhost:33418/callback`, so sign in from the computer that runs Anvil.
+- **Storage:** settings are kept in `~/.config/anvil/connectors.json`. Tokens, keys and OAuth credentials are kept separately in `connector-secrets.json`, which only your user can read.
+
+## Plugins
+
+A plugin bundles skills, slash commands and connectors. You can install one from a git URL or a folder, either under **Plugins** in the app or with `anvil plugins install <url>`. Anvil reads its own `plugin.json` and also Claude Code's `.claude-plugin/plugin.json`, along with `skills/`, `commands/*.md` and `.mcp.json`. That means existing Claude Code plugins work, including ones from a marketplace repository: pass `--plugin NAME` to pick one. You can turn plugins on and off, update them and remove them. A plugin's connectors start switched off, because they run programs from the plugin. Turn them on under Connectors.
+
+## Scheduled tasks
+
+A scheduled task runs a prompt in a project folder on a schedule. Set them up under **Scheduled** in the app, or with `anvil schedule add --cron "0 9 * * 1-5" --prompt "..." -C ~/project`. Schedules use 5-field cron, or `hourly`, `daily`, `weekdays` or `weekly`, in local time.
+
+- Each run becomes a normal session, so you can open it from the sidebar.
+- Each task sets what may run without asking:
+  - **ask:** nothing runs without approval. Approvals wait for you in the app.
+  - **edits:** file edits run without asking.
+  - **auto:** file edits and commands run without asking. Destructive commands still ask.
+- Tasks run while the desktop app is open. On a server, run `anvil schedule daemon` as a service:
+
+  ```ini
+  # /etc/systemd/system/anvil-scheduler.service
+  [Service]
+  User=anvil
+  ExecStart=/home/anvil/.local/bin/anvil schedule daemon
+  Restart=always
+  [Install]
+  WantedBy=multi-user.target
+  ```
+
+  When the daemon runs a task, nobody is there to approve, so anything that would need approval is declined. Only one scheduler runs at a time. If a run was missed while nothing was running, it fires once at the next start.
+
+## Artifacts and search
+
+- **Artifacts:** ask Anvil to "save this as an artifact" and it saves an HTML page, Markdown report, SVG diagram or code file with the `save_artifact` tool. Open **Artifacts** to preview, copy or download them. HTML runs in a sandboxed frame that can't reach the app. You can also use `anvil artifacts list|show ID`.
+- **Search:** press **Ctrl/⌘ K**, or run `anvil search WORDS`. It searches every saved session, artifact, scheduled task and project.
 
 ## Use it from your phone (Tailscale)
 
@@ -437,17 +511,22 @@ The tests use fake model servers, so they need no API key. Browser and web-app t
 - `anvil/backends.py`: Anthropic-format and OpenAI-format API clients
 - `anvil/tools.py`: tool definitions and implementations
 - `anvil/cli.py`: terminal UI, slash commands, sessions
+- `anvil/projects.py`: projects, project memory, and the thread/coordinator tools
 - `anvil/config.py`: settings, model aliases, pricing
 - `anvil/skills.py` and `anvil/builtin_skills/`: skills
 - `anvil/browser.py`: browser agent tools (Playwright)
 - `anvil/safety.py`: destructive-command detection, policy limits, backups
 - `anvil/checkpoints.py`: undo checkpoints
+- `anvil/mcp.py`, `anvil/mcp_oauth.py`, `anvil/connectors.py`: MCP client, OAuth and connectors
+- `anvil/plugins.py`, `anvil/schedules.py`, `anvil/artifacts.py`, `anvil/search.py`: plugins, scheduled tasks, artifacts, search
+- `anvil/extensions.py`: how connector and artifact tools plug into the agent; `anvil/extras_cli.py`: their terminal commands
+- `anvil/safety.py`: destructive-command detection, policy limits, backups
 - `anvil/safety.py`: destructive-command detection, protected paths, policy limits, backups
 - `anvil/shellparse.py`: the POSIX shell and cmd.exe parsers the safety checks use
 - `anvil/sandbox.py`: the optional command sandbox (bubblewrap, firejail, sandbox-exec, Docker/Podman)
 - `server/`: agent user setup, the Caddy helper and the Anvil cloud systemd unit
 - `anvil/cloud/`: Anvil cloud server (Google sign-in, encrypted settings) and the `anvil login` client
 - `android/`: Kotlin client and guide for Android apps
-- `anvil/gui/`: desktop and web app (local server in `server.py`, interface in `static/index.html`)
+- `anvil/gui/`: desktop and web app (local server in `server.py` and `extras_api.py`, interface in `static/index.html` and `static/extras.js`)
 
 Settings live in `~/.config/anvil/config.json`; sessions in `~/.config/anvil/sessions/`.

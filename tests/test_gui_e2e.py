@@ -104,3 +104,120 @@ def test_skill_picker(app_url):
         assert '<skill name="review"' in first
         browser.close()
     assert errors == []
+
+
+def test_extras_panels(app_url, project, tmp_path):
+    """Search, artifacts, connectors, scheduled tasks, plugins and browser panels load and work."""
+    import sys
+    from pathlib import Path
+
+    from playwright.sync_api import sync_playwright
+
+    import mcp_fake
+    from anvil import artifacts, connectors, schedules
+    url, fake = app_url
+    art = artifacts.save("Pricing page", "html", "<h1 id='x'>Hello from an artifact</h1>")
+    connectors.save_connector({"preset": "custom-stdio", "name": "Fake tools",
+                               "command": f'"{sys.executable}" "{Path(mcp_fake.__file__)}"'})
+    try:
+        with sync_playwright() as pw:
+            browser, page, errors = _page(pw)
+            page.goto(url)
+            page.wait_for_selector("body[data-ready='1']")
+            # search
+            page.keyboard.press("Control+k")
+            page.fill(".x-search", "pricing")
+            page.wait_for_selector(".x-res:has-text('Pricing page')")
+            page.keyboard.press("Enter")
+            frame = page.frame_locator(".x-view iframe")
+            assert frame.locator("#x").inner_text() == "Hello from an artifact"
+            # the artifact frame has no access to the app (sandboxed, opaque origin)
+            assert page.locator(".x-view iframe").get_attribute("sandbox").find("allow-same-origin") == -1
+            # connectors: test the fake server
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=connectors]")
+            page.click(".x-row:has-text('Fake tools') >> button:text-is('Test')")
+            page.wait_for_selector(".x-row:has-text('Connected · 2 tools')")
+            assert page.locator(".x-tile:has-text('Notion')").count() == 1
+            # scheduled task
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=scheduled]")
+            page.click("button:text-is('New scheduled task')")
+            page.fill(".x-form .nm", "Nightly tests")
+            page.fill(".x-form .pr", "run the tests")
+            page.select_option(".x-form .when", "weekdays")
+            page.wait_for_selector(".x-form .nx:has-text('Weekdays at 09:00')")
+            page.click(".x-form >> button:text-is('Create task')")
+            page.wait_for_selector(".x-row:has-text('Nightly tests')")
+            assert schedules.load()[0]["cron"] == "0 9 * * 1-5"
+            # plugins and browser panels render
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=plugins]")
+            page.wait_for_selector("text=No plugins installed yet.")
+            page.keyboard.press("Escape")
+            page.click("#x-nav [data-panel=browser]")
+            page.wait_for_selector(".x-row:has-text('Browser tools')")
+            browser.close()
+        assert errors == []
+    finally:
+        connectors.manager().close_all()
+        connectors.CONNECTORS_FILE.unlink(missing_ok=True)
+        schedules.SCHEDULES_FILE.unlink(missing_ok=True)
+        artifacts.delete(art["id"])
+def test_project_chat_threads_and_decisions(app_url, project, tmp_path):
+    from playwright.sync_api import sync_playwright
+    from fakes import tool
+    from test_projects import RoleScript
+    url, fake = app_url
+    rs = RoleScript(fake)
+    rs.chat = [tool("start_thread", title="Add a README", task="Write README.md for this project."),
+               text("Started a thread for the README.")]
+    rs.thread = [tool("update_checklist", items=[{"text": "Look at the code", "state": "done"},
+                                                 {"text": "Write README", "state": "doing"}]),
+                 tool("ask_user", question="How long should it be?", recommended=0,
+                      options=[{"label": "Short", "detail": "a few lines"}, {"label": "Detailed"}]),
+                 tool("update_checklist", items=[{"text": "Look at the code", "state": "done"},
+                                                 {"text": "Write README", "state": "done"}]),
+                 tool("set_status", status="done", summary="Wrote a short README."),
+                 text("Wrote a short README.")]
+    shots = tmp_path
+    with sync_playwright() as pw:
+        browser, page, errors = _page(pw)
+        page.goto(url)
+        page.wait_for_selector("body[data-ready='1']")
+        page.click("#new-proj-btn")
+        page.fill("#pm-name", "Demo shop")
+        page.fill("#pm-path", str(project))
+        page.fill("#pm-instr", "Keep it short.")
+        page.click("#pm-save")
+        page.wait_for_selector("body.in-project")
+        assert page.locator("#title").inner_text() == "Demo shop"
+        page.fill("#input", "add a readme")
+        page.press("#input", "Enter")
+        # the thread appears under the project and opens in the side panel from the chat card
+        page.wait_for_selector(".thr:has-text('Add a README')")
+        page.click(".tool.thread-link summary")
+        page.wait_for_selector("body.panel-open .decision")
+        assert page.locator("#tp-status").inner_text() == "Needs you"
+        page.wait_for_selector(".thr.active .sdot.needs_you")
+        assert page.locator("#tp-check .ci").count() == 2
+        page.screenshot(path=str(shots / "decision.png"))
+        page.click(".decision .opt:has-text('Short')")
+        page.wait_for_function("document.querySelector('#tp-status').textContent === 'Done'")
+        page.wait_for_selector("#tp-transcript .msg.md:has-text('Wrote a short README.')")
+        assert page.locator("#tp-check .ci.done").count() == 2
+        page.wait_for_selector(".thr.active .sdot.done")
+        # steering a finished thread sends straight away
+        rs.thread = [text("Added a license section too.")]
+        page.fill("#tp-input", "add a license section")
+        page.press("#tp-input", "Enter")
+        page.wait_for_selector("#tp-transcript .msg.md:has-text('license section too')")
+        page.screenshot(path=str(shots / "done.png"))
+        # after a reload the project and thread are still there
+        page.reload()
+        page.wait_for_selector("body[data-ready='1']")
+        page.click(".thr:has-text('Add a README')")
+        page.wait_for_selector("body.panel-open #tp-transcript .msg.user:has-text('add a license section')")
+        assert page.locator("body.in-project").count() == 1
+        browser.close()
+    assert errors == []
