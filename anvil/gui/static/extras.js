@@ -109,7 +109,7 @@ for (const [id, label, icon] of NAV) {
   b.onclick = () => { if (typeof closeSideMobile === "function") closeSideMobile(); open(id); };
   nav.appendChild(b);
 }
-document.querySelector("#new-btn").after(nav);
+(document.querySelector(".new-row") || document.querySelector("#new-btn")).after(nav);
 
 const overlay = el("div", "overlay"); overlay.id = "x-panel";
 overlay.innerHTML = `<div class="modal x-modal"><div class="x-head"><span class="x-ico"></span><h2></h2><button class="icon-btn" title="Close">${svg('<path d="M18 6 6 18M6 6l12 12"/>', 16)}</button></div><div class="x-body"></div></div>`;
