@@ -352,11 +352,14 @@ def make_handler(app: CloudApp):
 
         def _chat(self, method: str) -> bool:
             """Hand /app requests to the browser chat. True if this request was one."""
-            from .chat import PREFIX
+            from .chat import PREFIX, public_path
             path = urllib.parse.urlparse(self.path).path
             if not app.chat or not (path == PREFIX or path.startswith(PREFIX + "/")):
                 return False
             email, csrf = self._web_user()
+            if method in ("GET", "HEAD") and public_path(path):
+                app.chat.handle(self, method, email or "", csrf)  # no settings or state in these
+                return True
             if method in ("GET", "HEAD") and path in (PREFIX, PREFIX + "/", PREFIX + "/index.html"):
                 if not email:
                     self._redirect("/login?next=" + urllib.parse.quote(PREFIX + "/", safe=""))

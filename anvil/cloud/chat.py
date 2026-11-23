@@ -74,7 +74,15 @@ def _chat_app_class():
 
 def _inject(index: bytes, data: dict) -> bytes:
     blob = json.dumps(data).replace("<", "\\u003c")
+    # Absolute links to the app's own files (e.g. a script added by a feature) live under /app/ here.
+    index = re.sub(rb'(\s(?:src|href)=")/(?!/)', rb"\1" + PREFIX.encode() + rb"/", index)
     return index.replace(b"<head>", f"<head>\n<script>window.ANVIL_CLOUD = {blob};</script>".encode(), 1)
+
+
+def public_path(path: str) -> bool:
+    """The app shell's install files, which browsers fetch without cookies (the manifest)."""
+    from ..gui.server import PUBLIC_FILES
+    return path in tuple(PREFIX + p for p in PUBLIC_FILES)
 
 
 class CloudChat:
@@ -135,7 +143,8 @@ class CloudChat:
             if (site and site not in ("same-origin", "none")) or not csrf \
                     or not secrets.compare_digest(token.encode("utf-8", "replace"), csrf.encode()):
                 return outer._json({"error": "forbidden"}, 403)
-        self.app.sync(email)
+        if email:
+            self.app.sync(email)
         h = self.handler_cls.__new__(self.handler_cls)  # share the connection, skip handle()
         h.__dict__.update(outer.__dict__)
         h.close_connection = client_close
