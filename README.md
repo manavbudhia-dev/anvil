@@ -96,6 +96,29 @@ Notes:
 - Windows SmartScreen may warn about an unsigned app the first time. Click **More info**, then **Run anyway**.
 - Commands run in `cmd.exe` (Anvil tells the model so). If you prefer bash, use the terminal version from Git Bash or WSL.
 
+## Projects and threads
+
+A **project** is a folder with its own chat, standing instructions and memory. Its **project chat** is a coordinator: answer quick questions there, or describe work and it starts **threads**, separate agents that each take one task and run in parallel in the background.
+
+- Each thread keeps a checklist you can watch, and shows its status in the sidebar: working, needs you, done, failed or stopped.
+- When a thread needs a decision only you can make, it puts a card with options in front of you and waits. Approvals for edits and commands work as usual.
+- Click a thread to open it in the side panel. Type in "Steer this thread" to add instructions; if it's busy, they run after its current step.
+- When a thread finishes, its result is passed to the project chat with your next message there.
+- Instructions (Project settings) go into every chat and thread in the project. Memory is a list of facts Anvil saves with its `remember` tool as it works; you can edit it in Project settings.
+- Threads start in the permission mode of the project chat.
+
+In the desktop app: **Project** in the sidebar creates one; **+ Thread** starts a thread yourself. In the terminal:
+
+```bash
+anvil project new "Shop backend" -C ~/code/shop -i "Run pytest before finishing"
+anvil project list
+anvil project show "Shop backend"     # threads, status, memory
+anvil --project "Shop backend"        # the same project chat, in the terminal
+anvil --resume thr_2026...            # continue a thread in the terminal
+```
+
+Threads are started from the desktop app; the terminal project chat can list them (`/threads`, `/memory`) but not start them. Projects are stored in `~/.config/anvil/projects/` as JSON with stable ids and timestamps.
+
 ## Skills
 
 Skills are reusable instructions Anvil loads when a task matches, like a checklist or a house style. Anvil sees each skill's name and description, and loads the full instructions only when needed. You can also run one directly:
@@ -427,6 +450,7 @@ The tests use fake model servers, so they need no API key. Browser and web-app t
 - `anvil/backends.py`: Anthropic-format and OpenAI-format API clients
 - `anvil/tools.py`: tool definitions and implementations
 - `anvil/cli.py`: terminal UI, slash commands, sessions
+- `anvil/projects.py`: projects, project memory, and the thread/coordinator tools
 - `anvil/config.py`: settings, model aliases, pricing
 - `anvil/skills.py` and `anvil/builtin_skills/`: skills
 - `anvil/browser.py`: browser agent tools (Playwright)

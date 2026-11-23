@@ -26,6 +26,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from . import __version__
+from . import projects as P
 from .agent import Agent, Interrupted
 from .fsutil import atomic_write_text
 from .simple import (LANGUAGES, MODES, ask_key, bash_summary, clip, clip_tail, is_exit_word, language_of, mode_label,
@@ -55,6 +56,8 @@ COMMANDS = {
     "/setup": "Configure provider, base URL, model and key (for gateways)",
     "/provider": "Show the current provider, endpoint and model",
     "/skills": "List skills · /skills sync (git pull skill repos) · /skills add <git-url>",
+    "/threads": "In a project: list its threads and their status",
+    "/memory": "In a project: show the project memory",
     "/exit": "Quit",
 }
 
@@ -62,7 +65,8 @@ TOOL_ARG_KEYS = {"load_skill": "name", "read_file": "path", "write_file": "path"
                  "glob": "pattern", "grep": "pattern", "list_dir": "path",
                  "browser_open": "url", "browser_click": "ref", "browser_type": "text", "browser_select": "option",
                  "browser_press": "key", "browser_scroll": "direction", "browser_history": "action",
-                 "browser_tabs": "action", "browser_wait": "text"}
+                 "browser_tabs": "action", "browser_wait": "text",
+                 "remember": "note", "ask_user": "question", "start_thread": "title", "message_thread": "text"}
 
 
 class TerminalUI:
@@ -217,11 +221,15 @@ class TerminalUI:
 def save_session(agent: Agent, name: str | None = None) -> Path:
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     path = SESSIONS_DIR / f"{name or agent.session_id}.json"
-    atomic_write_text(path, json.dumps({
+    data = {
         "root": str(agent.root), "model": agent.config.model,
         "saved_at": datetime.now().isoformat(timespec="seconds"),
         "messages": agent.messages,
-    }), private=True)
+    }
+    state = getattr(agent.hooks, "state", None)
+    if state is not None:  # a project chat or thread: keep the fields the desktop app shows
+        data.update(state.fields(), updated_at=P.now_iso())
+    atomic_write_text(path, json.dumps(data), private=True)
     return path
 
 
@@ -232,7 +240,140 @@ def load_session(agent: Agent, name: str) -> bool:
     data = json.loads(path.read_text())
     agent.messages = data["messages"]
     agent.session_id = name
+    if data.get("project_id"):
+        project = P.Project.load(data["project_id"])
+        if project:
+            attach_terminal_project(agent, project, data.get("kind") or "thread", data)
     return True
+
+
+# --- projects in the terminal ---------------------------------------------------
+
+class TerminalProjectState:
+    """Project fields of a terminal session (same shape the desktop app saves)."""
+
+    def __init__(self, project: P.Project, kind: str, data: dict):
+        self.project_id, self.kind = project.id, kind
+        self.title = data.get("title") or (project.name if kind == "chat" else "Thread")
+        self.parent = data.get("parent", "")
+        self.status = data.get("status", "")
+        self.checklist = P.clean_checklist(data.get("checklist"))
+        self.summary = data.get("summary", "")
+        self.final_status = ""
+        self.inbox = list(data.get("inbox") or [])
+        self.created_at = data.get("created_at") or P.now_iso()
+
+    def fields(self) -> dict:
+        return {"title": self.title, "project_id": self.project_id, "kind": self.kind, "parent": self.parent,
+                "status": self.status, "checklist": self.checklist, "summary": self.summary,
+                "inbox": self.inbox, "created_at": self.created_at}
+
+
+class TerminalHost:
+    """Project tools in the terminal. Threads are started from the desktop app, so the terminal
+    project chat can list them but not start them."""
+
+    def __init__(self, state: TerminalProjectState):
+        self.state = state
+
+    def ask(self, question, options, recommended):
+        console.print(Panel("\n".join(f"  [bold]{i + 1}[/] {o['label']}" + (f" [dim]— {o['detail']}[/]" if o["detail"] else "")
+                                      + (" [green](recommended)[/]" if i == recommended else "")
+                                      for i, o in enumerate(options)), title=question, border_style="cyan"))
+        if not sys.stdin.isatty():
+            return ""
+        ans = console.input(f"[cyan]Pick 1-{len(options)} or type an answer [{recommended + 1}]: [/]").strip()
+        if not ans:
+            return options[recommended]["label"]
+        if ans.isdigit() and 1 <= int(ans) <= len(options):
+            return options[int(ans) - 1]["label"]
+        return ans
+
+    def changed(self):
+        if self.state.checklist:
+            mark = {"done": "[green]✓[/]", "doing": "[yellow]✱[/]", "todo": "[dim]○[/]"}
+            console.print("\n".join(f"  {mark[i['state']]} {i['text']}" for i in self.state.checklist))
+
+    def list_threads(self):
+        return P.describe_threads(project_threads(self.state.project_id))
+
+
+def project_threads(pid: str) -> list[dict]:
+    out = []
+    for p in sorted(SESSIONS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) if SESSIONS_DIR.exists() else []:
+        try:
+            d = json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if d.get("project_id") == pid and d.get("kind") == "thread":
+            out.append({"id": p.stem, "title": d.get("title", ""), "status": d.get("status", ""),
+                        "checklist": d.get("checklist") or [], "summary": d.get("summary", "")})
+    return out
+
+
+def attach_terminal_project(agent: Agent, project: P.Project, kind: str, data: dict | None = None) -> None:
+    state = TerminalProjectState(project, kind, data or {})
+    hooks = P.ProjectHooks(project, kind, state, TerminalHost(state))
+    agent.attach_project(hooks, P.system_suffix(project, kind, state.title))
+
+
+def print_threads(pid: str) -> None:
+    rows = project_threads(pid)
+    if not rows:
+        console.print("[dim]No threads yet. Start them from the project chat in anvil-desktop.[/]")
+    color = {"done": "green", "failed": "red", "needs_you": "yellow", "working": "cyan", "stopped": "dim"}
+    for th in rows:
+        cl = th["checklist"]
+        prog = f" {sum(1 for i in cl if i['state'] == 'done')}/{len(cl)}" if cl else ""
+        st = th["status"] or "idle"
+        console.print(f"  [{color.get(st, 'dim')}]{st:<9}[/]{prog:>6}  [bold]{th['title']}[/]  [dim]{th['id']}[/]")
+
+
+def project_main(argv: list[str]) -> None:
+    """anvil project new|list|show|rm ..."""
+    ap = argparse.ArgumentParser(prog="anvil project", description="Manage projects (a folder with shared instructions, memory and threads).")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    n = sub.add_parser("new", help="Create a project")
+    n.add_argument("name")
+    n.add_argument("-C", "--root", default=".", help="Project folder (default: current)")
+    n.add_argument("-i", "--instructions", default="", help="Standing instructions for every session in it")
+    sub.add_parser("list", help="List projects")
+    sh = sub.add_parser("show", help="Show a project's threads and memory")
+    sh.add_argument("name")
+    rm = sub.add_parser("rm", help="Delete a project (its sessions stay on disk)")
+    rm.add_argument("name")
+    a = ap.parse_args(argv)
+    if a.cmd == "new":
+        try:
+            p = P.Project.create(a.name, a.root, a.instructions)
+        except ValueError as e:
+            console.print(f"[red]{e}[/]")
+            sys.exit(1)
+        console.print(f"Created project [bold]{p.name}[/] ({p.root}). Open its chat with: anvil --project \"{p.name}\"")
+        return
+    if a.cmd == "list":
+        projects = P.list_projects()
+        for p in projects:
+            threads = project_threads(p.id)
+            busy = sum(1 for th in threads if th["status"] in ("working", "needs_you"))
+            console.print(f"  [bold]{p.name}[/]  [dim]{p.root} · {len(threads)} threads{f' · {busy} active' if busy else ''}[/]")
+        if not projects:
+            console.print("[dim]No projects yet. Create one: anvil project new NAME -C /path/to/folder[/]")
+        return
+    p = P.find_project(a.name)
+    if not p:
+        console.print(f"[red]No project named {a.name!r}. See: anvil project list[/]")
+        sys.exit(1)
+    if a.cmd == "show":
+        console.print(f"[bold]{p.name}[/]  [dim]{p.root} · id {p.id}[/]")
+        if p.instructions:
+            console.print(Panel(p.instructions, title="Instructions", border_style="dim"))
+        print_threads(p.id)
+        mem = p.read_memory().strip()
+        console.print(Panel(mem or "[dim](empty)[/]", title="Memory", border_style="dim"))
+    elif a.cmd == "rm":
+        p.delete()
+        console.print(f"Deleted project {p.name}.")
 
 
 def latest_session_for(root: Path) -> str | None:
@@ -330,8 +471,14 @@ def edit_in_editor() -> str:
 
 
 def run_turn(agent: Agent, text: str) -> None:
+    state = getattr(agent.hooks, "state", None)
+    thread = state is not None and state.kind == "thread"
+    if thread:
+        state.status, state.final_status = "working", ""
     try:
         agent.send(text)
+        if thread:
+            state.status = state.final_status or "done"
     except Interrupted:
         console.print(t(language_of(agent.config), "interrupted"))
     except (anthropic.AuthenticationError, openai.AuthenticationError):
@@ -349,6 +496,9 @@ def run_turn(agent: Agent, text: str) -> None:
         console.print(f"[red]API error {e.status_code}: {e.message}[/]")
     except (anthropic.APIConnectionError, openai.APIConnectionError):
         console.print(f"[red]Couldn't reach {describe_endpoint(agent.config)}. Check the base URL and your connection.[/]")
+    finally:
+        if thread and state.status == "working":
+            state.status = "stopped"
 
 
 def install_browser() -> int:
@@ -513,6 +663,16 @@ def handle_command(agent: Agent, line: str) -> str | None:
                 console.print(f"[red]{e}[/]")
         else:
             print_skills(agent)
+    elif cmd == "/threads":
+        if agent.hooks is None:
+            console.print("[dim]Not in a project. Start one with: anvil --project NAME[/]")
+        else:
+            print_threads(agent.hooks.project.id)
+    elif cmd == "/memory":
+        if agent.hooks is None:
+            console.print("[dim]Not in a project.[/]")
+        else:
+            console.print(agent.hooks.project.read_memory().strip() or "[dim](empty)[/]")
     elif cmd in ("/exit", "/quit"):
         raise EOFError
     else:
@@ -636,6 +796,9 @@ def interactive(agent: Agent) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in ("project", "projects"):
+        project_main(sys.argv[2:] or ["list"])
+        return
     from .cloud.cli import USAGE as CLOUD_USAGE, dispatch as cloud_dispatch
     rc = cloud_dispatch(sys.argv[1:])
     if rc is not None:
@@ -650,6 +813,7 @@ def main() -> None:
     parser.add_argument("-c", "--continue", dest="cont", action="store_true", help="Resume the latest session for this directory")
     parser.add_argument("-r", "--resume", metavar="NAME", help="Resume a saved session by name")
     parser.add_argument("-C", "--cwd", default=".", help="Project directory (default: current)")
+    parser.add_argument("-P", "--project", metavar="NAME", help="Open a project's chat (see: anvil project list)")
     parser.add_argument("--provider", choices=["anthropic", "openai"], help="API format of the endpoint")
     parser.add_argument("--base-url", help="Custom endpoint / gateway base URL")
     parser.add_argument("--compat", action="store_true", help="Send only basic request fields (for strict gateways)")
@@ -707,6 +871,14 @@ def main() -> None:
         config.effort = args.effort
 
     root = Path(args.cwd).expanduser().resolve()
+    project = None
+    if args.project:
+        project = P.find_project(args.project)
+        if not project:
+            console.print(f"[red]No project named {args.project!r}. Create it: anvil project new NAME -C FOLDER[/]")
+            sys.exit(1)
+        if Path(project.root).is_dir():
+            root = Path(project.root)
     if args.doctor:
         from .doctor import main as doctor_main
         sys.exit(doctor_main(console, config, root, as_json=args.json))
@@ -720,7 +892,19 @@ def main() -> None:
         agent.auto_approve_all = False
         ui.notice(f"--yolo ignored: the permission limit on this machine is '{agent.ceiling}'.")
 
-    resume = args.resume or (latest_session_for(root) if args.cont else None)
+    if project and not args.resume:  # the project chat is shared with the desktop app
+        agent.session_id = project.chat_id
+        if not load_session(agent, project.chat_id):
+            attach_terminal_project(agent, project, "chat")
+        state = agent.hooks.state
+        console.print(f"[bold]Project {project.name}[/] [dim]· {project.root}[/]")
+        print_threads(project.id)
+        if state.inbox:
+            notes, state.inbox = "\n".join(state.inbox), []
+            for line in notes.splitlines():
+                console.print(f"[cyan]· {line}[/]")
+            agent.messages.append({"role": "user", "content": [{"type": "text", "text": f"<thread-updates>\n{notes}\n</thread-updates>"}]})
+    resume = args.resume or (latest_session_for(root) if args.cont and not project else None)
     if resume:
         if load_session(agent, resume):
             console.print(f"[dim]Resumed session {resume} ({len(agent.messages)} messages)[/]")

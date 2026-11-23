@@ -86,6 +86,8 @@ class Agent:
         self.tools = Tools(self.root)
         self.backend = make_backend(config, ui)
         self.messages: list[dict] = []
+        self.hooks = None          # project tools (anvil.projects.ProjectHooks), when in a project
+        self.system_suffix = ""
         self.system = build_system_prompt(self.root)
         self.auto_approve_all = auto_approve_all
         self.accept_edits = False
@@ -111,6 +113,12 @@ class Agent:
     def rebuild_backend(self) -> None:
         self.backend = make_backend(self.config, self.ui)
 
+    def attach_project(self, hooks, suffix: str) -> None:
+        """Give this agent a project's tools and its instructions/memory in the system prompt."""
+        self.hooks = hooks
+        self.system_suffix = suffix
+        self.system = build_system_prompt(self.root) + suffix
+
     # --- conversation helpers ---------------------------------------------
 
     def _append_user(self, content: list[dict]) -> None:
@@ -133,11 +141,11 @@ class Agent:
     def reset_system(self) -> None:
         """Refresh the system prompt (e.g. after skills changed). Only safe between conversations
         or when the user accepts a cache miss; history is kept."""
-        self.system = build_system_prompt(self.root)
+        self.system = build_system_prompt(self.root) + self.system_suffix
 
     def reset(self) -> None:
         self.messages = []
-        self.system = build_system_prompt(self.root)
+        self.system = build_system_prompt(self.root) + self.system_suffix
 
     @property
     def browser_enabled(self) -> bool:
@@ -145,6 +153,8 @@ class Agent:
 
     def _tool_defs(self) -> list[dict]:
         tools = list(TOOL_DEFS)
+        if self.hooks is not None:
+            tools += self.hooks.defs()
         if self.browser_enabled:
             tools += BROWSER_TOOL_DEFS
         if self.config.web_search and self.backend.supports_web_search:
@@ -337,6 +347,8 @@ class Agent:
 
     def _run_tool(self, block: dict) -> dict:
         name, args, tid = block["name"], block.get("input"), block["id"]
+        if self.hooks is not None and name in self.hooks.names():
+            return self._run_project_tool(name, args, tid)
         err = validate_input(name, args)
         if err:
             payload = json.dumps({"INVALID_JSON": err, "received": args}, default=str)
@@ -384,6 +396,20 @@ class Agent:
             return {"type": "tool_result", "tool_use_id": tid, "content": result, "is_error": is_error}
         self.ui.tool_result(name, args, result, is_error)
         return {"type": "tool_result", "tool_use_id": tid, "content": result or "(no output)", "is_error": is_error}
+
+    def _run_project_tool(self, name: str, args, tid: str) -> dict:
+        """Project tools (checklist, memory, threads, questions) only touch Anvil's own state, so
+        they never need approval."""
+        args = args if isinstance(args, dict) else {}
+        self.ui.tool_running(name, args)
+        try:
+            result, is_error = self.hooks.run(name, args), False
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            result, is_error = f"Error: {e}", True
+        self.ui.tool_result(name, args, result, is_error)
+        return {"type": "tool_result", "tool_use_id": tid, "content": result, "is_error": is_error}
 
     # --- the agent loop ----------------------------------------------------
 
