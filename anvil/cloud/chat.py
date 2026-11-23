@@ -8,6 +8,7 @@ machine's own ~/.config/anvil/config.json, exactly as for the terminal.
 """
 
 import json
+import re
 import secrets
 import threading
 from pathlib import Path
@@ -17,7 +18,11 @@ from ..config import Config
 PREFIX = "/app"
 # Desktop-only endpoints: they expose the desktop pairing token, open windows on the server or
 # sign the server's own Anvil into a cloud account.
-BLOCKED = {"/api/connect", "/api/qr.svg", "/api/open", "/api/pick-folder", "/api/cloud/login", "/api/cloud/logout"}
+BLOCKED = {"/api/connect", "/api/qr.svg", "/api/open", "/api/pick-folder", "/api/cloud/login", "/api/cloud/logout",
+           "/api/browser/install"}
+# Connector browser sign-in listens on localhost of the machine running Anvil: from a phone it
+# would open a listener on the server that the phone can never reach.
+BLOCKED_RE = re.compile(r"^/api/connectors/[^/]+/login$")
 
 
 def _chat_app_class():
@@ -81,6 +86,8 @@ class CloudChat:
             raise ValueError(f"chat_workspace {root} is not a folder")
         config = Config.load()
         self.app = _chat_app_class()(config, root, store, cfg.public_url)
+        from ..gui import extras_api
+        extras_api.attach(self.app)  # connectors/artifacts events and the scheduler, as on the desktop
         self.emails = [e.strip().lower() for e in (cfg.chat_emails or cfg.allowed_emails)]
         secure = cfg.public_url.startswith("https://")
 
@@ -120,7 +127,7 @@ class CloudChat:
             outer.close_connection = True  # refused requests leave the body unread; delegated ones reset this
         if not path.startswith("/"):
             return outer._json({"error": "not found"}, 404)
-        if path.split("?")[0] in BLOCKED:
+        if path.split("?")[0] in BLOCKED or BLOCKED_RE.match(path.split("?")[0]):
             return outer._json({"error": "not available on the cloud server"}, 404)
         if method not in ("GET", "HEAD"):
             site = (outer.headers.get("Sec-Fetch-Site") or "").lower()

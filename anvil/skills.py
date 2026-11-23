@@ -9,7 +9,7 @@ A skill is either a folder containing SKILL.md (plus any helper files) or a sing
     ---
     Instructions...
 
-Search order (later wins on name clashes): built-in, personal, project.
+Search order (later wins on name clashes): built-in, plugins, personal, project.
 """
 
 import re
@@ -92,7 +92,9 @@ def _scan(base: Path, source: str) -> list[Skill]:
 
 def discover(root: Path | None) -> dict[str, Skill]:
     skills: dict[str, Skill] = {}
-    sources = [(BUILTIN_DIR, "built-in"), (PERSONAL_DIR, "personal")]
+    from .plugins import skill_dirs
+
+    sources = [(BUILTIN_DIR, "built-in"), *skill_dirs(), (PERSONAL_DIR, "personal")]
     if root:
         sources.append((root / PROJECT_SUBDIR, "project"))
     for base, source in sources:

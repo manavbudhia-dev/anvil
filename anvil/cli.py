@@ -796,6 +796,9 @@ def interactive(agent: Agent) -> None:
 
 
 def main() -> None:
+    from .extras_cli import COMMANDS, main as extras_main
+    if len(sys.argv) > 1 and sys.argv[1] in COMMANDS:  # anvil connectors|plugins|schedule|artifacts|search
+        sys.exit(extras_main(sys.argv[1:]))
     if len(sys.argv) > 1 and sys.argv[1] in ("project", "projects"):
         project_main(sys.argv[2:] or ["list"])
         return

@@ -100,6 +100,12 @@ def test_chat_page_and_csrf(chat):
         assert b.req("GET", path)[0] == 404
     assert b.req("POST", "/app/api/open", json_body={"url": "https://x"}, headers={"X-Anvil-Token": token})[0] == 404
     assert b.req("POST", "/app/api/cloud/login", json_body={}, headers={"X-Anvil-Token": token})[0] == 404
+    # Extras: the panels' script and APIs work, but nothing that installs or listens on the server.
+    assert b.req("GET", "/app/extras.js")[0] == 200
+    assert b.req("GET", "/app/api/connectors")[0] == 200
+    assert b.req("GET", "/app/api/search?q=x")[0] == 200
+    assert b.req("POST", "/app/api/browser/install", json_body={}, headers={"X-Anvil-Token": token})[0] == 404
+    assert b.req("POST", "/app/api/connectors/notion/login", json_body={}, headers={"X-Anvil-Token": token})[0] == 404
 
 
 def test_chat_only_for_chat_emails(chat):
@@ -191,6 +197,15 @@ def test_chat_in_a_real_phone_browser(chat, project):
         assert (project / "hi.txt").read_text() == "hi\n"
         page.click("#show-side")
         assert page.locator(".sess:has-text('write hi.txt')").count() == 1
+        # The extras panels work on the phone too.
+        page.click("#x-nav [data-panel=scheduled]")
+        page.wait_for_selector("button:text-is('New scheduled task')")
+        page.keyboard.press("Escape")
+        page.click("#show-side")
+        page.click("#x-nav [data-panel=connectors]")
+        page.wait_for_selector(".x-tile:has-text('Notion')")
+        page.click(".x-tile:has-text('Notion')")
+        page.wait_for_selector(".x-note:has-text('on the server')")
         browser.close()
     assert errors == []
 
