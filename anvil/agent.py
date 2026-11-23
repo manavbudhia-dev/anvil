@@ -148,7 +148,6 @@ class Agent:
 
     def reset(self) -> None:
         self.messages = []
-        self.system = build_system_prompt(self.root)
         self.checkpoints.chat_reset()
         self.system = build_system_prompt(self.root) + self.system_suffix
 
@@ -366,11 +365,10 @@ class Agent:
 
     def _run_tool(self, block: dict) -> dict:
         name, args, tid = block["name"], block.get("input"), block["id"]
-        ext = extensions.find(name)
-        err = ext.validate(name, args) if ext else validate_input(name, args)
         if self.hooks is not None and name in self.hooks.names():
             return self._run_project_tool(name, args, tid)
-        err = validate_input(name, args)
+        ext = extensions.find(name)
+        err = ext.validate(name, args) if ext else validate_input(name, args)
         if err:
             payload = json.dumps({"INVALID_JSON": err, "received": args}, default=str)
             self.ui.tool_result(name, args if isinstance(args, dict) else {}, payload, True)
@@ -430,6 +428,7 @@ class Agent:
                 self.checkpoints.before_bash()
         except Exception as e:
             self.ui.notice(f"Couldn't record an undo checkpoint: {e}")
+
     def _run_project_tool(self, name: str, args, tid: str) -> dict:
         """Project tools (checklist, memory, threads, questions) only touch Anvil's own state, so
         they never need approval."""
