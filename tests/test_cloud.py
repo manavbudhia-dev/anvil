@@ -38,6 +38,8 @@ def test_settings_are_encrypted_at_rest_and_tokens_hashed(store, tmp_path):
     assert b"sk-secret-123" not in raw
     assert pair["refresh_token"].encode() not in raw and pair["access_token"].encode() not in raw
     assert store.get_settings(OWNER)["api_key"] == "sk-secret-123"
+    if os.name != "nt":  # Windows has no POSIX modes; same rule as test_secrets_are_private_files
+        assert (tmp_path / "master.key").stat().st_mode & 0o077 == 0
     assert os.name == "nt" or (tmp_path / "master.key").stat().st_mode & 0o077 == 0  # no POSIX modes on Windows
 
 
@@ -193,6 +195,8 @@ def test_anvil_login_device_flow_fetches_settings(cloud, monkeypatch):
     assert client.poll_device_login(start, sleep=lambda s: None) == OWNER
     creds = json.loads(client.CRED_FILE.read_text())
     assert creds["server"] == server and "refresh_token" in creds
+    if os.name != "nt":
+        assert client.CRED_FILE.stat().st_mode & 0o077 == 0
     assert os.name == "nt" or client.CRED_FILE.stat().st_mode & 0o077 == 0  # no POSIX modes on Windows
 
     cfg = Config(api_key="local-key", model="local-model")

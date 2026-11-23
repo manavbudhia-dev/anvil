@@ -4,6 +4,7 @@ per-launch random token, so other websites open in your browser can't call it.""
 import json
 import os
 import queue
+import re
 import secrets
 import subprocess
 import threading
@@ -21,6 +22,7 @@ from ..agent import Agent, Interrupted
 from .. import extensions
 from . import extras_api
 from ..fsutil import atomic_write_text
+from .. import projects as P
 from ..skills import add_repo, display_text, sync_dirs
 from ..config import CONFIG_DIR, EFFORTS, SESSIONS_DIR, Config, price_for, resolve_model
 
@@ -51,7 +53,9 @@ TOOL_ARG_KEYS = {"load_skill": "name", "read_file": "path", "write_file": "path"
                  "glob": "pattern", "grep": "pattern", "list_dir": "path",
                  "browser_open": "url", "browser_click": "ref", "browser_type": "text", "browser_select": "option",
                  "browser_press": "key", "browser_scroll": "direction", "browser_history": "action",
-                 "browser_tabs": "action", "browser_wait": "text"}
+                 "browser_tabs": "action", "browser_wait": "text",
+                 "remember": "note", "ask_user": "question", "start_thread": "title", "message_thread": "text"}
+UPDATES_RE = re.compile(r"^<thread-updates>\n(.*?)\n</thread-updates>\n\n", re.S)
 UI_RESULT_LIMIT = 20_000
 MAX_BODY = 10 * 1024 * 1024  # largest JSON request body accepted
 
@@ -112,6 +116,8 @@ class GuiUI:
         self.sid = sid
         self.cancel = threading.Event()
         self.pending: dict[str, list] = {}
+        self.pending_events: dict[str, dict] = {}  # open approval/decision cards, re-shown after a reload
+        self.on_wait = None  # called with True while waiting on the user, False after
 
     def emit(self, type_: str, **data) -> None:
         self.hub.publish({"session": self.sid, "type": type_, **data})
@@ -159,12 +165,15 @@ class GuiUI:
         self.emit("tool_result", name=name, label=tool_label(name, args), args=args,
                   result=result[:UI_RESULT_LIMIT], is_error=is_error)
 
-    def confirm(self, name, args, preview, dangers=None):
+    def _wait_for_user(self, type_: str, **data):
         req_id = uuid.uuid4().hex
         done = threading.Event()
         self.pending[req_id] = [done, None]
-        self.emit("confirm", req_id=req_id, name=name, label=tool_label(name, args), args=args, preview=preview,
-                  dangers=dangers or [])
+        ev = {"session": self.sid, "type": type_, "req_id": req_id, **data}
+        self.pending_events[req_id] = ev
+        self.hub.publish(ev)
+        if self.on_wait:
+            self.on_wait(True)
         try:
             while not done.wait(0.2):
                 if self.cancel.is_set():
@@ -172,7 +181,17 @@ class GuiUI:
             return self.pending[req_id][1]
         finally:
             self.pending.pop(req_id, None)
+            self.pending_events.pop(req_id, None)
             self.emit("confirm_done", req_id=req_id)
+            if self.on_wait:
+                self.on_wait(False)
+
+    def confirm(self, name, args, preview, dangers=None):
+        return self._wait_for_user("confirm", name=name, label=tool_label(name, args), args=args, preview=preview,
+                                   dangers=dangers or [])
+
+    def ask(self, question: str, options: list[dict], recommended: int = 0) -> str:
+        return self._wait_for_user("decision", question=question, options=options, recommended=recommended) or ""
 
     def resolve(self, req_id: str, decision: str) -> bool:
         slot = self.pending.get(req_id)
@@ -208,7 +227,13 @@ def messages_to_items(messages: list[dict]) -> list[dict]:
                 elif b.get("type") == "text":
                     texts.append(b["text"])
             if texts:
-                items.append({"kind": "user", "text": display_text("\n\n".join(texts))})
+                text = "\n\n".join(texts)
+                m = UPDATES_RE.match(text)
+                if m:
+                    items.append({"kind": "updates", "text": m.group(1)})
+                    text = text[m.end():]
+                if text.strip():
+                    items.append({"kind": "user", "text": display_text(text)})
         else:
             for b in content:
                 t = b.get("type")
@@ -233,12 +258,17 @@ def session_title(messages: list[dict]) -> str:
             return content.strip()[:80]
         for b in content:
             if b.get("type") == "text" and b["text"].strip():
-                return display_text(b["text"].strip()).splitlines()[0][:80]
+                t = UPDATES_RE.sub("", b["text"]).strip()
+                if t:
+                    return display_text(t).splitlines()[0][:80]
     return "New session"
 
 
 class Session:
-    def __init__(self, app: "App", sid: str, root: Path, messages: list | None = None, title: str = ""):
+    def __init__(self, app: "App", sid: str, root: Path, messages: list | None = None, title: str = "",
+                 project: "P.Project | None" = None, kind: str = "", extra: dict | None = None):
+        extra = extra or {}
+        self.app = app
         self.sid = sid
         self.ui = GuiUI(app.hub, sid)
         self.agent = Agent(app.config, root, self.ui)
@@ -246,12 +276,39 @@ class Session:
         if messages:
             self.agent.messages = messages
         self.title = title or session_title(self.agent.messages)
-        self.mode = "ask"
+        self.mode = extra.get("mode") if extra.get("mode") in ("ask", "edits", "auto") else "ask"
         self.running = False
         self.deleted = False
         self.backend_stale = False
         self.thread: threading.Thread | None = None
         self._busy_lock = threading.Lock()
+        # projects and threads
+        self.project_id = project.id if project else ""
+        self.kind = kind if project else ""           # "chat" (project chat), "thread", or "" (plain session)
+        self.parent = extra.get("parent", "")         # the project chat that started a thread
+        self.status = extra.get("status", "")
+        if self.status in ("working", "needs_you"):   # Anvil was closed mid-turn
+            self.status = "stopped"
+        self.checklist: list[dict] = P.clean_checklist(extra.get("checklist"))
+        self.summary = extra.get("summary", "")
+        self.final_status = ""
+        self.inbox: list[str] = list(extra.get("inbox") or [])  # thread results waiting for the project chat
+        self.queued: list[str] = []                   # messages sent while busy, run after this turn
+        self.created_at = extra.get("created_at") or P.now_iso()
+        if project:
+            hooks = P.ProjectHooks(project, self.kind, self, SessionHost(app, self))
+            self.agent.attach_project(hooks, P.system_suffix(project, self.kind, self.title))
+            self.ui.on_wait = self._on_wait
+        if self.mode != "ask":
+            try:
+                self.set_mode(self.mode)
+            except ValueError:
+                self.mode = "ask"
+
+    def _on_wait(self, waiting: bool) -> None:
+        if self.kind == "thread" and self.running:
+            self.status = "needs_you" if waiting else "working"
+            self.app.publish_update(self)
 
     def try_start(self) -> bool:
         """Atomically mark the session busy. Two requests at once (a double-tap on Send) can't both win."""
@@ -282,17 +339,58 @@ class Session:
     def save(self) -> None:
         if not self.agent.messages or self.deleted:
             return
-        atomic_write_text(SESSIONS_DIR / f"{self.sid}.json", json.dumps({
+        data = {
             "root": str(self.agent.root), "model": self.agent.config.model, "title": self.title,
             "saved_at": datetime.now().isoformat(timespec="seconds"), "messages": self.agent.messages,
-        }), private=True)
+        }
+        if self.project_id:
+            data.update(self.project_fields(), mode=self.mode, inbox=self.inbox, created_at=self.created_at,
+                        updated_at=P.now_iso())
+        atomic_write_text(SESSIONS_DIR / f"{self.sid}.json", json.dumps(data), private=True)
+
+    def project_fields(self) -> dict:
+        return {"project_id": self.project_id, "kind": self.kind, "parent": self.parent, "status": self.status,
+                "checklist": self.checklist, "summary": self.summary}
 
     def meta(self) -> dict:
         a = self.agent
         return {"id": self.sid, "title": self.title, "root": str(a.root), "running": self.running,
                 "mode": self.mode, "ceiling": a.ceiling, "cost": round(a.total_cost, 4), "cost_known": a.cost_known,
                 "tokens_in": a.total_input_tokens, "tokens_out": a.total_output_tokens, "cache": a.cache_stats(),
-                "context": a.last_context_tokens}
+                "context": a.last_context_tokens, "queued": len(self.queued), **self.project_fields()}
+
+    def summary_row(self) -> dict:
+        return {"id": self.sid, "title": self.title, "root": str(self.agent.root), "running": self.running,
+                "updated": datetime.now().isoformat(timespec="seconds"), **self.project_fields()}
+
+
+class SessionHost:
+    """What project tools need from the desktop app, for one session."""
+
+    def __init__(self, app: "App", session: Session):
+        self.app, self.s = app, session
+
+    def ask(self, question, options, recommended):
+        return self.s.ui.ask(question, options, recommended)
+
+    def changed(self):
+        self.app.publish_update(self.s)
+
+    def start_thread(self, title, task):
+        t = self.app.start_thread(self.s.project_id, title, task, parent=self.s.sid, mode=self.s.mode)
+        return f"Started thread {t.sid}: {title}. It runs in the background; its result comes back to you."
+
+    def list_threads(self):
+        return P.describe_threads([t for t in self.app.list_sessions() if t.get("project_id") == self.s.project_id
+                                   and t.get("kind") == "thread"])
+
+    def message_thread(self, thread_id, text):
+        t = self.app.get_session(thread_id)
+        if not t or t.project_id != self.s.project_id or t.kind != "thread":
+            raise ValueError(f"no thread {thread_id} in this project")
+        if not text:
+            raise ValueError("empty message")
+        return "Sent." if self.app.send_or_queue(t, text) == "sent" else "Queued; it runs after the thread's current step."
 
 
 class App:
@@ -322,10 +420,9 @@ class App:
     # sessions ---------------------------------------------------------------
     def list_sessions(self) -> list[dict]:
         out, seen = [], set()
-        for s in self.sessions.values():
+        for s in list(self.sessions.values()):
             if s.agent.messages or s.running:
-                out.append({"id": s.sid, "title": s.title, "root": str(s.agent.root),
-                            "running": s.running, "updated": datetime.now().isoformat(timespec="seconds")})
+                out.append(s.summary_row())
                 seen.add(s.sid)
         if SESSIONS_DIR.exists():
             for p in SESSIONS_DIR.glob("*.json"):
@@ -335,8 +432,14 @@ class App:
                     d = json.loads(p.read_text())
                 except (json.JSONDecodeError, OSError):
                     continue
-                out.append({"id": p.stem, "title": d.get("title") or session_title(d.get("messages", [])),
-                            "root": d.get("root", ""), "running": False, "updated": d.get("saved_at", "")})
+                row = {"id": p.stem, "title": d.get("title") or session_title(d.get("messages", [])),
+                       "root": d.get("root", ""), "running": False, "updated": d.get("saved_at", "")}
+                if d.get("project_id"):
+                    st = d.get("status", "")
+                    row.update(project_id=d["project_id"], kind=d.get("kind", ""), parent=d.get("parent", ""),
+                               status="stopped" if st in ("working", "needs_you") else st,
+                               checklist=d.get("checklist") or [], summary=d.get("summary", ""))
+                out.append(row)
         out.sort(key=lambda s: (s["running"], s["updated"]), reverse=True)
         return out
 
@@ -351,7 +454,9 @@ class App:
             root = Path(d.get("root") or self.default_root)
             if not root.is_dir():
                 root = self.default_root
-            s = Session(self, sid, root, d.get("messages", []), d.get("title", ""))
+            project = P.Project.load(d["project_id"]) if d.get("project_id") else None
+            s = Session(self, sid, root, d.get("messages", []), d.get("title", ""), project=project,
+                        kind=d.get("kind", ""), extra=d)
             self.sessions[sid] = s
             return s
 
@@ -379,6 +484,21 @@ class App:
         if p.exists():
             p.unlink()
 
+    def publish_update(self, s: Session) -> None:
+        """A thread's status or checklist changed: refresh the sidebar and any open view."""
+        self.hub.publish({"session": s.sid, "type": "session_update", "meta": s.meta()})
+
+    def send_or_queue(self, s: Session, text: str) -> str:
+        with s._busy_lock:
+            busy = s.running
+            if busy:
+                s.queued.append(text)
+        if busy:
+            self.publish_update(s)
+            return "queued"
+        self.send(s, text)
+        return "sent"
+
     def send(self, s: Session, text: str) -> None:
         if text.startswith("/"):
             expanded = s.agent.expand_skill(text)
@@ -391,29 +511,45 @@ class App:
         if s.title == "New session":
             s.title = text.strip().splitlines()[0][:80] if text.strip() else s.title
         s.ui.cancel.clear()
+        if s.kind == "chat" and s.inbox:  # tell the coordinator what its threads did since last time
+            notes, s.inbox = "\n".join(s.inbox), []
+            expanded = f"<thread-updates>\n{notes}\n</thread-updates>\n\n{expanded}"
+        if s.kind == "thread":
+            s.status, s.final_status = "working", ""
+            self.publish_update(s)
 
         def run():
             s.ui.emit("turn_start")
+            outcome = "done"
             try:
                 s.agent.send(expanded)
             except Interrupted:
+                outcome = "stopped"
                 s.ui.emit("interrupted")
             except (anthropic.AuthenticationError, openai.AuthenticationError):
+                outcome = "failed"
                 s.ui.emit("error", text="Authentication failed: the endpoint rejected your API key. Open Settings to fix it.")
             except (anthropic.NotFoundError, openai.NotFoundError) as e:
+                outcome = "failed"
                 s.ui.emit("error", text=f"Not found: {e.message}. Check the model name and base URL in Settings.")
             except (anthropic.APIStatusError, openai.APIStatusError) as e:
+                outcome = "failed"
                 s.ui.emit("error", text=f"API error {e.status_code}: {e.message}")
             except (anthropic.APIConnectionError, openai.APIConnectionError):
+                outcome = "failed"
                 s.ui.emit("error", text="Couldn't reach the API endpoint. Check the base URL and your connection.")
             except Exception as e:  # keep the app alive and show what happened
+                outcome = "failed"
                 s.ui.emit("error", text=f"{type(e).__name__}: {e}")
             finally:
                 try:
+                    if s.kind == "thread":
+                        self._thread_finished(s, outcome)
                     s.save()
                 finally:
                     s.finish()
                     s.ui.emit("turn_end", meta=s.meta())
+                    self._run_queued(s)
 
         s.thread = threading.Thread(target=run, daemon=True)
         try:
@@ -421,6 +557,104 @@ class App:
         except BaseException:
             s.finish()
             raise
+
+    def _run_queued(self, s: Session) -> None:
+        if s.deleted or not s.queued or s.ui.cancel.is_set():
+            return
+        nxt = s.queued.pop(0)
+        try:
+            self.send(s, nxt)
+        except ValueError:
+            s.queued.insert(0, nxt)
+
+    def _thread_finished(self, s: Session, outcome: str) -> None:
+        if outcome == "done" and s.final_status:
+            outcome = s.final_status
+        s.status = outcome
+        if not s.summary or not s.final_status:
+            last = next((b.get("text", "") for m in reversed(s.agent.messages) if m["role"] == "assistant"
+                         for b in reversed(m["content"]) if isinstance(b, dict) and b.get("type") == "text"), "")
+            if last.strip() and outcome == "done":
+                s.summary = last.strip()[:2000]
+        if s.queued and outcome != "stopped":
+            return  # more instructions are waiting; report when those finish
+        try:
+            chat = self.project_chat(s.project_id)
+        except ValueError:
+            chat = None
+        if chat is not None and chat.sid != s.sid:
+            label = {"done": "finished", "failed": "failed", "stopped": "was stopped"}.get(outcome, outcome)
+            note = f'Thread "{s.title}" ({s.sid}) {label}.'
+            if s.summary and outcome in ("done", "failed"):
+                note += f" Result: {s.summary[:600]}"
+            chat.inbox.append(note)
+            chat.save()
+        self.publish_update(s)
+
+    # projects ---------------------------------------------------------------
+    def project_view(self, p: "P.Project") -> dict:
+        return {**p.view(), "memory": p.read_memory()}
+
+    def create_project(self, data: dict) -> "P.Project":
+        p = P.Project.create(str(data.get("name", "")), str(data.get("root") or self.default_root),
+                             str(data.get("instructions", "")))
+        return p
+
+    def update_project(self, pid: str, data: dict) -> "P.Project":
+        p = P.Project.load(pid)
+        if not p:
+            raise ValueError("project not found")
+        if str(data.get("name", "")).strip():
+            p.name = str(data["name"]).strip()[:80]
+        if "instructions" in data:
+            p.instructions = str(data["instructions"] or "").strip()
+        if "root" in data and data["root"]:
+            path = Path(os.path.expanduser(str(data["root"]))).resolve()
+            if not path.is_dir():
+                raise ValueError(f"Folder not found: {path}")
+            p.root = str(path)
+        p.save()
+        if "memory" in data:
+            p.write_memory(str(data["memory"] or ""))
+        for s in list(self.sessions.values()):  # new instructions apply from the next conversation
+            if s.project_id == pid and not s.running and not s.agent.messages:
+                s.agent.attach_project(s.agent.hooks, P.system_suffix(p, s.kind, s.title))
+        return p
+
+    def delete_project(self, pid: str) -> None:
+        p = P.Project.load(pid)
+        if not p:
+            raise ValueError("project not found")
+        for row in self.list_sessions():
+            if row.get("project_id") == pid:
+                self.delete_session(row["id"])
+        self.delete_session(p.chat_id)
+        p.delete()
+
+    def project_chat(self, pid: str) -> Session:
+        p = P.Project.load(pid)
+        if not p:
+            raise ValueError("project not found")
+        s = self.get_session(p.chat_id)
+        if s is None:
+            root = Path(p.root) if Path(p.root).is_dir() else self.default_root
+            s = Session(self, p.chat_id, root, title=p.name, project=p, kind="chat")
+            with self.lock:
+                s = self.sessions.setdefault(p.chat_id, s)
+        return s
+
+    def start_thread(self, pid: str, title: str, task: str, parent: str = "", mode: str = "ask") -> Session:
+        p = P.Project.load(pid)
+        if not p:
+            raise ValueError("project not found")
+        root = Path(p.root) if Path(p.root).is_dir() else self.default_root
+        sid = P.new_id("thr")
+        s = Session(self, sid, root, title=title[:80], project=p, kind="thread",
+                    extra={"parent": parent or p.chat_id, "mode": mode})
+        with self.lock:
+            self.sessions[sid] = s
+        self.send(s, task)
+        return s
 
     def refresh_skills(self) -> None:
         for s in self.sessions.values():
@@ -515,6 +749,11 @@ class App:
         self._rebuild_backends()
 
 
+def session_payload(s: Session) -> dict:
+    return {"meta": s.meta(), "items": messages_to_items(s.agent.messages),
+            "pending": list(s.ui.pending_events.values())}
+
+
 def make_handler(app: App):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -584,6 +823,7 @@ def make_handler(app: App):
                 return self._json({"error": "unauthorized"}, 401)
             if url.path == "/api/state":
                 return self._json({"config": app.config_view(), "sessions": app.list_sessions(),
+                                   "projects": [app.project_view(p) for p in P.list_projects()],
                                    "default_root": str(app.default_root), "can_pick_folder": app.pick_folder is not None,
                                    "home": str(Path.home())})
             if url.path == "/api/skills":
@@ -609,7 +849,7 @@ def make_handler(app: App):
                 s = app.get_session(url.path.split("/")[3])
                 if not s:
                     return self._json({"error": "not found"}, 404)
-                return self._json({"meta": s.meta(), "items": messages_to_items(s.agent.messages)})
+                return self._json(session_payload(s))
             self._json({"error": "not found"}, 404)
 
         def do_DELETE(self):
@@ -621,6 +861,12 @@ def make_handler(app: App):
                 return self._json({"ok": True})
             if self._extras("DELETE", url.path, parse_qs(url.query), {}):
                 return
+            if url.path.startswith("/api/projects/"):
+                try:
+                    app.delete_project(url.path.split("/")[3])
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 404)
+                return self._json({"ok": True})
             self._json({"error": "not found"}, 404)
 
         def do_POST(self):
@@ -667,6 +913,23 @@ def make_handler(app: App):
                 if url.path == "/api/sessions":
                     s = app.new_session(data.get("root"))
                     return self._json({"meta": s.meta(), "items": []})
+                if url.path == "/api/projects":
+                    p = app.create_project(data)
+                    return self._json({"project": app.project_view(p)})
+                if len(parts) >= 3 and parts[:2] == ["api", "projects"]:
+                    if len(parts) == 3:
+                        return self._json({"project": app.project_view(app.update_project(parts[2], data))})
+                    if parts[3] == "chat":
+                        return self._json(session_payload(app.project_chat(parts[2])))
+                    if parts[3] == "threads":
+                        task = str(data.get("task", "")).strip()
+                        if not task:
+                            return self._json({"error": "describe the task"}, 400)
+                        title = str(data.get("title", "")).strip() or task.splitlines()[0][:60]
+                        chat = app.project_chat(parts[2])
+                        t = app.start_thread(parts[2], title, task, parent=chat.sid, mode=chat.mode)
+                        return self._json({"meta": t.meta()})
+                    return self._json({"error": "not found"}, 404)
                 if len(parts) == 4 and parts[:2] == ["api", "sessions"]:
                     s = app.get_session(parts[2])
                     if not s:
@@ -676,8 +939,12 @@ def make_handler(app: App):
                         text = (data.get("text") or "").strip()
                         if not text:
                             return self._json({"error": "empty message"}, 400)
-                        app.send(s, text)
+                        if data.get("queue"):
+                            app.send_or_queue(s, text)
+                        else:
+                            app.send(s, text)
                     elif action == "stop":
+                        s.queued.clear()  # stopping means stop, not "go on with the next queued message"
                         s.ui.cancel.set()
                     elif action == "approve":
                         s.ui.resolve(data.get("req_id", ""), data.get("decision") or "no")

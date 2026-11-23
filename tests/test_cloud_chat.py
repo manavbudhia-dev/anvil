@@ -208,3 +208,45 @@ def test_chat_in_a_real_phone_browser(chat, project):
         page.wait_for_selector(".x-note:has-text('on the server')")
         browser.close()
     assert errors == []
+
+
+def test_projects_and_threads_in_cloud_chat(chat, project):
+    from test_browser import _browser_works
+    if not _browser_works():
+        pytest.skip("Playwright/Chromium not installed")
+    from playwright.sync_api import sync_playwright
+    from fakes import tool
+    from test_projects import RoleScript
+    app, port, fake = chat
+    rs = RoleScript(fake)
+    rs.chat = [tool("start_thread", title="Write notes", task="Write notes.txt."), text("Started a thread.")]
+    rs.thread = [tool("update_checklist", items=[{"text": "Write notes", "state": "doing"}]),
+                 tool("ask_user", question="Which format?", options=[{"label": "Plain"}, {"label": "Markdown"}]),
+                 tool("set_status", status="done", summary="Notes written."), text("Notes written.")]
+    b = Browser(port)
+    b.sign_in()
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        ctx = browser.new_context(viewport={"width": 1280, "height": 820})
+        ctx.add_cookies([{"name": "anvil_cloud", "value": b.cookies["anvil_cloud"], "url": f"http://127.0.0.1:{port}"}])
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/app/")
+        page.wait_for_selector("body[data-ready='1']")
+        page.click("#new-proj-btn")
+        assert not page.is_visible("#pm-browse")  # no folder picker on the server
+        page.fill("#pm-name", "Cloud proj")
+        page.fill("#pm-path", str(project))
+        page.click("#pm-save")
+        page.wait_for_selector("body.in-project")
+        page.fill("#input", "write notes")
+        page.press("#input", "Enter")
+        page.wait_for_selector(".tool.thread-link")
+        page.click(".tool.thread-link summary")
+        page.wait_for_selector("body.panel-open .decision")
+        page.click(".decision .opt:has-text('Markdown')")
+        page.wait_for_function("document.querySelector('#tp-status').textContent === 'Done'")
+        page.wait_for_selector(".thr.active .sdot.done")
+        browser.close()
+    assert errors == []
