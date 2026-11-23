@@ -4,18 +4,20 @@ A terminal coding agent, in the spirit of Claude Code and OpenCode, that runs on
 
 ## Quick install (one line)
 
-**Linux server (Oracle Linux, RHEL, Ubuntu, Debian) or macOS.** Push this folder to a GitHub repo, set `DEFAULT_REPO` in `install.sh` to its URL, then on any machine:
+**Linux server (Oracle Linux, RHEL, Ubuntu, Debian) or macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/manavbudhia-dev/anvil/main/install.sh | bash
 ```
 
 It installs Python 3.10+, git and tmux with your package manager, installs Anvil into `~/.anvil`, puts `anvil` and `anvil-desktop` on your PATH, and starts the setup wizard. Run the same line again to update.
 
-- **Private repo** (the server has a GitHub deploy key):
+On a freshly booted Ubuntu server, automatic updates (`unattended-upgrades`) often hold apt's lock for a few minutes. The installer says so and waits (up to 15 minutes, `ANVIL_APT_WAIT=<seconds>` to change) instead of failing.
+
+- **Private fork** (the server has a GitHub deploy key):
 
   ```bash
-  git clone -q git@github.com:OWNER/REPO.git ~/.anvil/src && bash ~/.anvil/src/install.sh
+  git clone -q git@github.com:YOUR-USER/YOUR-FORK.git ~/.anvil/src && bash ~/.anvil/src/install.sh
   ```
 
   Update later with `bash ~/.anvil/src/install.sh`.
@@ -28,7 +30,7 @@ It installs Python 3.10+, git and tmux with your package manager, installs Anvil
 - **No questions asked** (for scripts and new servers):
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | ANVIL_PROVIDER=openai ANVIL_BASE_URL=https://your-gateway/v1 ANVIL_MODEL=your-model ANVIL_API_KEY=your-key bash
+  curl -fsSL https://raw.githubusercontent.com/manavbudhia-dev/anvil/main/install.sh | ANVIL_PROVIDER=openai ANVIL_BASE_URL=https://your-gateway/v1 ANVIL_MODEL=your-model ANVIL_API_KEY=your-key bash
   ```
 
   A key typed on the command line lands in your shell history; run `history -d $(history 1)` afterwards, or leave `ANVIL_API_KEY` out and use `anvil --setup`.
@@ -454,6 +456,8 @@ The agent can read, search, create and edit files, and run shell commands. Befor
 | `/cost` | Spend and context size so far |
 | `/compact` | Summarize the conversation to cut context (and cost) |
 | `/clear` | New conversation |
+| `/undo [N] [code]` | Put files back to before the last turn (or turn N) and drop it from the chat; `code` keeps the chat |
+| `/checkpoints` | List the turns you can undo |
 | `/save [name]`, `/load name`, `/sessions` | Manage sessions |
 | `/yolo` | Toggle auto-approve |
 | `/auto [ask\|edits\|auto]` | Switch permission mode (same as Shift+Tab) |
@@ -465,6 +469,12 @@ The agent can read, search, create and edit files, and run shell commands. Befor
 | `/edit` | Write a long prompt in `$EDITOR` |
 | `/init` | Have the agent write an `AGENTS.md` for the project |
 | `!cmd` | Run a shell command yourself |
+
+### Undo
+
+Before the first change in each turn, Anvil records how the project looked, so `/undo` (or **Undo** in the desktop app) can put it back, including changes made by shell commands. It keeps this in a private git repository under `~/.config/anvil/checkpoints/`; your project's own `.git` (branches, index, stash) is never touched, and git-ignored files such as `node_modules/` and build output are left alone. Each session keeps its last 50 checkpoints, also after `/save`, `--resume` or a restart.
+
+This needs git. In a folder that is large (over 5,000 files) and not a git repository, such as your home folder, only changes made with Anvil's file-editing tools can be undone, not shell commands. After `/compact`, undo still restores files but can't rewind the chat.
 
 ### Project instructions
 If the project root has `AGENTS.md`, `CLAUDE.md` or `ANVIL.md`, its contents are added to the system prompt.
@@ -505,6 +515,8 @@ The tests use fake model servers, so they need no API key. Browser and web-app t
 - `anvil/config.py`: settings, model aliases, pricing
 - `anvil/skills.py` and `anvil/builtin_skills/`: skills
 - `anvil/browser.py`: browser agent tools (Playwright)
+- `anvil/safety.py`: destructive-command detection, policy limits, backups
+- `anvil/checkpoints.py`: undo checkpoints
 - `anvil/mcp.py`, `anvil/mcp_oauth.py`, `anvil/connectors.py`: MCP client, OAuth and connectors
 - `anvil/plugins.py`, `anvil/schedules.py`, `anvil/artifacts.py`, `anvil/search.py`: plugins, scheduled tasks, artifacts, search
 - `anvil/extensions.py`: how connector and artifact tools plug into the agent; `anvil/extras_cli.py`: their terminal commands

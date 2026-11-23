@@ -147,6 +147,25 @@ def test_chat_runs_agent_with_cloud_settings_and_approvals(chat, project):
     assert json.loads(b.req("GET", "/app/api/state")[2])["config"]["model"] == "claude-haiku-5-5"
 
 
+def test_chat_undo_through_cloud_server(chat, project):
+    _, port, fake = chat
+    fake.script = [tools(("write_file", {"path": "u.txt", "content": "u"})), text("Done.")]
+    b = Browser(port)
+    b.sign_in()
+    token = page_token(b.req("GET", "/app/")[2])
+    hdr = {"X-Anvil-Token": token}
+    sid = json.loads(b.req("POST", "/app/api/sessions", json_body={}, headers=hdr)[2])["meta"]["id"]
+    assert b.req("POST", f"/app/api/sessions/{sid}/mode", json_body={"mode": "auto"}, headers=hdr)[0] == 200
+    b.req("POST", f"/app/api/sessions/{sid}/send", json_body={"text": "make u"}, headers=hdr)
+    wait_idle(b, sid, token)
+    cps = json.loads(b.req("GET", f"/app/api/sessions/{sid}/checkpoints")[2])["checkpoints"]
+    assert [c["files"] for c in cps] == [["u.txt"]]
+    assert b.req("POST", f"/app/api/sessions/{sid}/undo", json_body={"n": cps[0]["n"]})[0] == 403  # needs the token
+    st, _, body = b.req("POST", f"/app/api/sessions/{sid}/undo", json_body={"n": cps[0]["n"]}, headers=hdr)
+    assert st == 200 and json.loads(body)["undo"]["files"] == ["u.txt"]
+    assert not (project / "u.txt").exists()
+
+
 def test_chat_events_stream_through_cloud_server(chat):
     _, port, _ = chat
     import http.client

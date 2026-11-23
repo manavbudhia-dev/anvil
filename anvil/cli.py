@@ -43,6 +43,8 @@ COMMANDS = {
     "/effort": "Show or set effort: low|medium|high|xhigh|max (OpenAI format: low|medium|high|off)",
     "/cost": "Show spend and context size for this session",
     "/compact": "Summarize the conversation to free up context",
+    "/undo": "Undo the last turn's file changes and remove it from the chat: /undo [N] [code] (code = keep the chat)",
+    "/checkpoints": "List the turns you can undo back to",
     "/save": "Save the session: /save [name]",
     "/load": "Load a saved session: /load <name>",
     "/sessions": "List saved sessions",
@@ -579,6 +581,10 @@ def handle_command(agent: Agent, line: str) -> str | None:
                 console.print(f"[red]Compaction failed: {e}[/]")
                 return None
         console.print(Panel(Markdown(summary or "(nothing to compact)"), title="Conversation summary", border_style="dim"))
+    elif cmd == "/undo":
+        undo_command(agent, arg)
+    elif cmd == "/checkpoints":
+        print_checkpoints(agent)
     elif cmd == "/save":
         console.print(f"Saved to {save_session(agent, arg or None)}")
     elif cmd == "/load":
@@ -682,6 +688,54 @@ def handle_command(agent: Agent, line: str) -> str | None:
             return expanded
         console.print(f"[red]Unknown command {cmd}. Type /help or /skills.[/]")
     return None
+
+
+def print_checkpoints(agent: Agent) -> None:
+    cps = agent.checkpoints
+    items = cps.items()
+    if not items:
+        console.print("[dim]No checkpoints yet. Anvil records one before each turn that changes files.[/]")
+    for c in reversed(items):
+        files = c["changed"]
+        shown = ", ".join(files[:4]) + (f" +{len(files) - 4} more" if len(files) > 4 else "")
+        chat = "" if c.get("msg_index") is not None else " [dim](files only: chat was compacted)[/]"
+        console.print(f"  [bold]#{c['n']}[/] [dim]{c['time']}[/] {c['prompt'][:60]!r}{chat}\n      [dim]{shown}[/]")
+    if items:
+        console.print("[dim]/undo goes back one turn; /undo N goes back to before turn N.[/]")
+    if cps.mode() == "files":
+        console.print("[dim]This folder is large and not a git repository, so only edit_file/write_file "
+                      "changes can be undone, not shell commands.[/]")
+
+
+def undo_command(agent: Agent, arg: str) -> None:
+    from .checkpoints import CheckpointError
+
+    words = arg.split()
+    keep_chat = "code" in words
+    nums = [w.lstrip("#") for w in words if w.lstrip("#").isdigit()]
+    n = int(nums[0]) if nums else None
+    try:
+        paths = agent.checkpoints.preview(n)
+        later = [c for c in agent.checkpoints.items() if n is None or c["n"] >= n]
+        what = f"{len(later)} turn{'s' if len(later) != 1 else ''}" if n is not None else "the last turn"
+        console.print(f"Undo {what}{' (files only, chat kept)' if keep_chat else ''}. Files that will change:")
+        for p in paths[:20]:
+            console.print(f"  [dim]{p}[/]")
+        if len(paths) > 20:
+            console.print(f"  [dim]… and {len(paths) - 20} more[/]")
+        if not paths:
+            console.print("  [dim](none: they already match)[/]")
+        if console.input("Go ahead? [y/N] ").strip().lower() not in ("y", "yes"):
+            console.print("[dim]Cancelled.[/]")
+            return
+        res = agent.checkpoints.undo(n, rewind_chat=not keep_chat)
+    except CheckpointError as e:
+        console.print(f"[red]Can't undo: {e}[/]")
+        return
+    console.print(f"[green]Undone back to before #{res['n']}[/] ({len(res['files'])} files restored"
+                  + ("; the turn was removed from the chat" if res["chat"] else "") + ").")
+    if agent.messages or res["chat"]:
+        save_session(agent)
 
 
 def cache_line(agent: Agent) -> str:

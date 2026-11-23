@@ -366,7 +366,7 @@ body.panel-open #tpanel { display: flex; width: min(460px, 42vw); }
   #show-side { display: grid !important; }
   #hide-side { display: none; }
   header { padding: 0 8px 0 6px; gap: 6px; padding-top: env(safe-area-inset-top); height: calc(52px + env(safe-area-inset-top)); }
-  #compact-btn { padding: 3px 8px; }
+  #compact-btn, #undo-btn { padding: 3px 8px; }
   #transcript, #empty { padding-left: 14px; padding-right: 14px; }
   #transcript { padding-top: 14px; }
   #empty { padding-top: 6vh; }
@@ -426,6 +426,7 @@ body.panel-open #tpanel { display: flex; width: min(460px, 42vw); }
     <button class="chip proj-only" id="new-thread-btn" title="Start a thread in this project">+ Thread</button>
     <button class="chip proj-only" id="proj-btn" title="Instructions, memory and folder">Project settings</button>
     <span class="stats" id="stats"></span>
+    <button class="chip" id="undo-btn" title="Undo the file changes of a turn">Undo</button>
     <button class="chip" id="compact-btn" title="Summarize the conversation to free up context">Compact</button>
   </header>
   <div id="scroller">
@@ -560,6 +561,18 @@ body.panel-open #tpanel { display: flex; width: min(460px, 42vw); }
       <div class="field" id="recent-wrap"><label>Recent folders</label><div class="recent" id="recent"></div></div>
     </div>
     <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="create-sess">Start session</button></div>
+  </div>
+</div>
+<div class="overlay" id="undo">
+  <div class="modal">
+    <h2>Undo</h2>
+    <p class="sub">Put your files back to how they were before a turn. That turn and every later one are removed from the chat too, unless you keep it.</p>
+    <div class="body">
+      <div id="cp-list"></div>
+      <label class="help" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" id="cp-keep"> Keep the chat (undo file changes only)</label>
+      <div class="help" id="cp-note"></div>
+    </div>
+    <div class="foot"><button class="btn" data-close>Close</button></div>
   </div>
 </div>
 <div class="overlay" id="skills">
@@ -1360,6 +1373,36 @@ $("#compact-btn").onclick = async () => {
   try { await api(`/api/sessions/${state.current}/compact`, { method: "POST" }); await openSession(state.current); toast("Conversation compacted"); }
   catch (e) { toast(e.message); } finally { b.textContent = "Compact"; }
 };
+$("#undo-btn").onclick = async () => {
+  if (state.running) return toast("Wait for Anvil to finish first");
+  let d; try { d = await api(`/api/sessions/${state.current}/checkpoints`); } catch (e) { return toast(e.message); }
+  renderCheckpoints(d); $("#undo").classList.add("open");
+};
+function renderCheckpoints(d) {
+  const list = $("#cp-list");
+  list.innerHTML = d.checkpoints.length ? "" : `<div class="help">Nothing to undo yet. Anvil saves a checkpoint before each turn that changes files.</div>`;
+  d.checkpoints.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)";
+    const files = c.files.slice(0, 3).join(", ") + (c.files.length > 3 ? ` +${c.files.length - 3} more` : "");
+    row.innerHTML = `<div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.prompt || "(turn)")}</div>`
+      + `<div class="help" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.time)} · ${esc(files)}</div></div>`
+      + `<button class="btn" style="flex:0;white-space:nowrap">${i === 0 ? "Undo last turn" : `Undo ${i + 1} turns`}</button>`;
+    row.querySelector("button").onclick = () => undoTo(c, i + 1);
+    list.appendChild(row);
+  });
+  $("#cp-note").textContent = d.checkpoint_mode === "files" ? "This folder is large and not a git repository, so changes made by shell commands can't be undone, only file edits." : "";
+}
+async function undoTo(c, turns) {
+  const keep = $("#cp-keep").checked;
+  if (!confirm(`Undo ${turns === 1 ? "the last turn" : turns + " turns"}? Files changed since "${c.prompt.slice(0, 60)}" go back to how they were${keep ? "." : ", and those turns leave the chat."}`)) return;
+  try {
+    const d = await api(`/api/sessions/${state.current}/undo`, { method: "POST", body: { n: c.n, keep_chat: keep } });
+    setMeta(d.meta); renderItems(d.items); renderCheckpoints(d);
+    toast(`Restored ${d.undo.files.length} file${d.undo.files.length === 1 ? "" : "s"}`);
+    if (!d.checkpoints.length) $("#undo").classList.remove("open");
+  } catch (e) { toast(e.message); }
+}
 document.querySelectorAll(".suggestions button").forEach((b) => b.onclick = () => { $("#input").value = b.dataset.p; autosize(); send(); });
 function closeSideMobile() { document.body.classList.remove("side-open"); }
 $("#hide-side").onclick = () => { document.body.classList.add("side-hidden"); $("#show-side").style.display = "grid"; };

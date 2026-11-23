@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from .backends import MalformedToolInput, make_backend
+from .checkpoints import Checkpoints
 from .config import Config, cost_breakdown
 from .browser import BROWSER_ACTIONS, BROWSER_TOOL_DEFS, BROWSER_TOOL_NAMES, Browser, browser_dangers
 from .browser import available as browser_available
@@ -85,6 +86,7 @@ class Agent:
         self.root = root.resolve()
         self.ui = ui
         self.tools = Tools(self.root)
+        self.checkpoints = Checkpoints(self)
         self.backend = make_backend(config, ui)
         self.messages: list[dict] = []
         self.hooks = None          # project tools (anvil.projects.ProjectHooks), when in a project
@@ -146,6 +148,8 @@ class Agent:
 
     def reset(self) -> None:
         self.messages = []
+        self.system = build_system_prompt(self.root)
+        self.checkpoints.chat_reset()
         self.system = build_system_prompt(self.root) + self.system_suffix
 
     @property
@@ -392,6 +396,7 @@ class Agent:
                 return {"type": "tool_result", "tool_use_id": tid, "content": msg, "is_error": True}
 
         self._last_activity = time.monotonic()
+        self._before_change(name, args)
         self.ui.tool_running(name, args)
         try:
             if ext:
@@ -416,6 +421,15 @@ class Agent:
         self.ui.tool_result(name, args, result, is_error)
         return {"type": "tool_result", "tool_use_id": tid, "content": result or "(no output)", "is_error": is_error}
 
+    def _before_change(self, name: str, args: dict) -> None:
+        """Record the "before" state for /undo. Never blocks the tool itself."""
+        try:
+            if name in ("write_file", "edit_file"):
+                self.checkpoints.before_edit(self.tools.resolve(args.get("path")))
+            elif name == "bash":
+                self.checkpoints.before_bash()
+        except Exception as e:
+            self.ui.notice(f"Couldn't record an undo checkpoint: {e}")
     def _run_project_tool(self, name: str, args, tid: str) -> dict:
         """Project tools (checklist, memory, threads, questions) only touch Anvil's own state, so
         they never need approval."""
@@ -434,7 +448,14 @@ class Agent:
 
     def send(self, user_text: str) -> None:
         self._last_activity = time.monotonic()
-        self._send(user_text)
+        self.checkpoints.begin_turn(user_text, len(self.messages))
+        try:
+            self._send(user_text)
+        finally:
+            try:
+                self.checkpoints.end_turn()
+            except Exception as e:
+                self.ui.notice(f"Couldn't save the undo checkpoint: {e}")
         self._maybe_compact()
 
     def _maybe_compact(self) -> None:
