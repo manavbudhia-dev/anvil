@@ -92,6 +92,8 @@ body.side-hidden #sidebar { margin-left: -268px; }
 header { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 header .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 header .spacer { flex: 1; }
+header .chip { flex-shrink: 0; }
+body.panel-open .stats { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 12.5px; background: none; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
 button.chip:hover { border-color: var(--border-strong); color: var(--text); }
 .stats { font-size: 12.5px; color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -249,14 +251,122 @@ details[open] > summary .chev { transform: rotate(90deg); }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 10px; font-size: 13.5px; z-index: 60; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: 1; }
 
+/* projects & threads */
+.new-row { display: flex; gap: 6px; margin: 4px 12px 10px; }
+.new-row .new-btn { margin: 0; flex: 1; justify-content: center; }
+.new-row .new-btn.sm { flex: 0 0 auto; padding: 8px 10px; }
+.side-empty { padding: 4px 12px 8px; color: var(--faint); font-size: 12.5px; }
+.side-empty a { color: var(--accent); text-decoration: none; }
+.proj { display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 2px; border-radius: 8px; cursor: pointer; }
+.proj:hover { background: var(--side-hover); }
+.proj.active { background: var(--side-active); }
+.proj .tog { width: 22px; height: 22px; }
+.proj .tog .chev { transition: transform .15s; }
+.proj.open .tog .chev { transform: rotate(90deg); }
+.proj .txt { flex: 1; min-width: 0; }
+.proj .t { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj .f { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj .add { width: 24px; height: 24px; opacity: 0; }
+.proj:hover .add, .proj.active .add { opacity: 1; }
+.thr { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 30px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
+.thr:hover { background: var(--side-hover); color: var(--text); }
+.thr.active { background: var(--side-active); color: var(--text); }
+.thr.empty { cursor: default; color: var(--faint); font-size: 12px; }
+.thr.empty:hover { background: none; }
+.thr .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thr .pg { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.thr .del { width: 22px; height: 22px; display: none; }
+.thr:hover .del { display: grid; }
+.thr:hover .pg { display: none; }
+.sdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--faint); }
+.sdot.working { background: var(--accent); animation: pulse 1.2s infinite; }
+.sdot.needs_you { background: #d99a1e; box-shadow: 0 0 0 3px rgba(217,154,30,.22); }
+.sdot.done { background: var(--ok); }
+.sdot.failed { background: var(--err); }
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; background: var(--code-bg); color: var(--muted); border: 1px solid var(--border); }
+.pill.working { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.pill.needs_you { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+.pill.done { color: var(--add); background: var(--add-bg); border-color: transparent; }
+.pill.failed { color: var(--del); background: var(--del-bg); border-color: transparent; }
+.proj .pill { padding: 0 7px; }
+.proj-only { display: none !important; }
+body.in-project .proj-only { display: inline-flex !important; }
+.proj-tag { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 6px; }
+.btn.danger-text { color: var(--err); border-color: transparent; background: none; }
+.btn.danger-text:hover { border-color: var(--err); }
+.field textarea { width: 100%; padding: 8px 11px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--bg); outline: none; resize: vertical; line-height: 1.5; }
+.field textarea:focus { border-color: var(--accent); }
+#pm-mem { font: 12.5px/1.5 var(--mono); }
+.tool.thread-link > summary { cursor: pointer; }
+.tool.thread-link { border-color: var(--accent); }
+.tool.thread-link .name { color: var(--accent); }
+.tool.thread-link .meta { color: var(--accent); }
+.tool.thread-link .chev { display: none; }
+.updates { margin: 0 0 14px; padding: 9px 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 9px 9px 0; font-size: 13px; }
+.updates .lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); margin-bottom: 3px; }
+.updates .line { color: var(--muted); }
+.decision { margin: 0 0 14px; border: 1.5px solid #d99a1e; border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); padding: 12px 14px; }
+.decision .q { display: flex; gap: 10px; align-items: baseline; font-weight: 600; margin-bottom: 10px; }
+.decision .tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--warn); background: var(--warn-bg); padding: 2px 7px; border-radius: 5px; flex-shrink: 0; }
+.decision .opts { display: flex; flex-direction: column; gap: 6px; }
+.decision .opt { display: flex; align-items: flex-start; gap: 10px; text-align: left; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
+.decision .opt:hover { border-color: var(--accent); }
+.decision .opt.rec { border-color: var(--border-strong); }
+.decision .opt .key { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font: 600 12px var(--mono); background: var(--code-bg); border: 1px solid var(--border); flex-shrink: 0; }
+.decision .opt .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.decision .opt .l { font-weight: 600; font-size: 13.5px; }
+.decision .opt .d { font-size: 12.5px; color: var(--muted); }
+.decision .opt .d:empty { display: none; }
+.decision .opt .badge { margin: 2px 0 0; color: var(--add); border-color: var(--add-bg); background: var(--add-bg); }
+.decision input { width: 100%; margin-top: 8px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); outline: none; font-size: 13px; }
+.decision input:focus { border-color: var(--accent); }
+.decision.resolved { opacity: .6; pointer-events: none; }
+
+#tpanel { width: 0; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); display: none; flex-direction: column; min-width: 0; }
+body.panel-open #tpanel { display: flex; width: min(460px, 42vw); }
+.tp-head { height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tp-head .crumb { font-size: 12px; color: var(--faint); white-space: nowrap; }
+.tp-head .crumb::after { content: "›"; margin-left: 8px; }
+.tp-title { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#tp-scroller { flex: 1; overflow-y: auto; padding: 14px 16px 24px; }
+#tp-transcript .msg.user .bubble { max-width: 92%; }
+#tp-check { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px 8px; margin-bottom: 16px; background: var(--bg); }
+#tp-check .ch-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--muted); }
+#tp-check .ch-head .pg { font-variant-numeric: tabular-nums; color: var(--faint); }
+#tp-check .bar { height: 4px; border-radius: 4px; background: var(--border); margin: 6px 0 8px; overflow: hidden; }
+#tp-check .bar span { display: block; height: 100%; background: var(--ok); transition: width .3s; }
+#tp-check .ci { display: flex; gap: 9px; align-items: flex-start; padding: 3px 0; font-size: 13px; }
+#tp-check .ci .mk { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--border-strong); flex-shrink: 0; margin-top: 2px; display: grid; place-items: center; font-size: 10px; color: #fff; }
+#tp-check .ci.done .mk { background: var(--ok); border-color: var(--ok); }
+#tp-check .ci.done .tx { color: var(--faint); text-decoration: line-through; }
+#tp-check .ci.doing .mk { border-color: var(--accent); border-top-color: transparent; animation: spin 1s linear infinite; }
+#tp-check .ci.doing .tx { font-weight: 600; }
+#tp-check .more { border: 0; background: none; color: var(--muted); font-size: 12.5px; padding: 4px 0 2px 25px; }
+#tp-check .more:hover { color: var(--text); }
+.tp-compose { padding: 0 14px 14px; flex-shrink: 0; }
+.tp-box { display: flex; align-items: flex-end; gap: 6px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--bg); padding: 6px 6px 6px 12px; }
+.tp-box:focus-within { border-color: var(--faint); }
+#tp-input { flex: 1; border: 0; outline: none; resize: none; background: transparent; padding: 6px 0; max-height: 180px; line-height: 1.5; }
+#tp-send { width: 30px; height: 30px; border-radius: 9px; border: 0; background: var(--accent); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
+#tp-send:hover { background: var(--accent-hover); }
+.tp-queued { font-size: 11.5px; color: var(--faint); padding: 4px 4px 0; }
+.tp-queued:empty { display: none; }
+@media (hover: none) { .proj .add { opacity: 1; } .thr .del { display: none !important; } .thr .pg { display: inline !important; } }
+@media (max-width: 1100px) {
+  body.panel-open #tpanel { position: fixed; right: 0; top: 0; bottom: 0; z-index: 30; width: min(460px, 92vw); box-shadow: var(--shadow); }
+}
+
 @media (max-width: 760px) {
+  body.panel-open #tpanel { width: 100vw; border-left: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  #proj-btn { display: none !important; }
+  .proj-tag { display: none !important; }
   #sidebar { position: fixed; z-index: 40; height: 100%; width: min(300px, 86vw); box-shadow: var(--shadow); margin-left: 0 !important; transform: translateX(-105%); transition: transform .2s ease; }
   body.side-open #sidebar { transform: none; }
   body.side-open #backdrop { display: block; position: fixed; inset: 0; background: rgba(20,18,15,.4); z-index: 39; }
   #show-side { display: grid !important; }
   #hide-side { display: none; }
   header { padding: 0 8px 0 6px; gap: 6px; padding-top: env(safe-area-inset-top); height: calc(52px + env(safe-area-inset-top)); }
-  #compact-btn { padding: 3px 8px; }
+  #compact-btn, #undo-btn { padding: 3px 8px; }
   #transcript, #empty { padding-left: 14px; padding-right: 14px; }
   #transcript { padding-top: 14px; }
   #empty { padding-top: 6vh; }
@@ -294,9 +404,11 @@ details[open] > summary .chev { transform: rotate(90deg); }
     <span class="spacer"></span>
     <button class="icon-btn" id="hide-side" title="Hide sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
   </div>
-  <button class="new-btn" id="new-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New session</button>
+  <div class="new-row">
+    <button class="new-btn" id="new-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New session</button>
+    <button class="new-btn sm" id="new-proj-btn" title="New project"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>Project</button>
+  </div>
   <div class="search"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="search" placeholder="Search sessions"></div>
-  <div class="section-label">Recents</div>
   <div id="sessions"></div>
   <div class="side-foot">
     <button id="settings-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
@@ -308,9 +420,13 @@ details[open] > summary .chev { transform: rotate(90deg); }
 <div id="main">
   <header>
     <button class="icon-btn" id="show-side" title="Show sidebar" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+    <span class="proj-only proj-tag">Project</span>
     <span class="title" id="title">New session</span>
     <span class="spacer"></span>
+    <button class="chip proj-only" id="new-thread-btn" title="Start a thread in this project">+ Thread</button>
+    <button class="chip proj-only" id="proj-btn" title="Instructions, memory and folder">Project settings</button>
     <span class="stats" id="stats"></span>
+    <button class="chip" id="undo-btn" title="Undo the file changes of a turn">Undo</button>
     <button class="chip" id="compact-btn" title="Summarize the conversation to free up context">Compact</button>
   </header>
   <div id="scroller">
@@ -348,6 +464,54 @@ details[open] > summary .chev { transform: rotate(90deg); }
       </div>
     </div>
     <div class="hint">Enter to send · Shift+Enter for a new line · / for skills · Esc to stop</div>
+  </div>
+</div>
+
+<aside id="tpanel" aria-label="Thread">
+  <div class="tp-head">
+    <span class="crumb">Thread</span>
+    <span class="tp-title" id="tp-title"></span>
+    <span class="pill" id="tp-status"></span>
+    <button class="icon-btn" id="tp-stop" title="Stop this thread" style="display:none"><svg width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg></button>
+    <button class="icon-btn" id="tp-close" title="Close panel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div id="tp-scroller">
+    <div id="tp-check"></div>
+    <div id="tp-transcript"></div>
+  </div>
+  <div class="tp-compose">
+    <div class="tp-box">
+      <textarea id="tp-input" rows="1" placeholder="Steer this thread…"></textarea>
+      <button id="tp-send" title="Send (Enter)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    </div>
+    <div class="tp-queued" id="tp-queued"></div>
+  </div>
+</aside>
+
+<div class="overlay" id="projmodal">
+  <div class="modal">
+    <h2 id="pm-title">New project</h2>
+    <p class="sub" id="pm-sub"></p>
+    <div class="body">
+      <div class="field"><label for="pm-name">Name</label><input type="text" id="pm-name" placeholder="e.g. Shop backend" maxlength="80"></div>
+      <div class="field"><label for="pm-path">Folder</label>
+        <div class="row" style="gap:8px"><input type="text" id="pm-path" spellcheck="false" style="flex:1"><button class="btn" id="pm-browse" style="flex:0">Browse…</button></div>
+      </div>
+      <div class="field"><label for="pm-instr">Instructions</label><textarea id="pm-instr" rows="4" placeholder="Standing rules for every chat and thread here, e.g. reply in Hinglish, run pytest before finishing, never push to main."></textarea></div>
+      <div class="field" id="pm-mem-wrap"><label for="pm-mem">Memory</label><textarea id="pm-mem" rows="5" spellcheck="false" placeholder="Facts Anvil saves as it works. Edit or clear them here."></textarea><div class="help">Anvil adds to this with its remember tool. It is shown to every new chat and thread in the project.</div></div>
+    </div>
+    <div class="foot"><button class="btn danger-text" id="pm-delete" style="margin-right:auto">Delete project</button><button class="btn" data-close>Cancel</button><button class="btn primary" id="pm-save">Create project</button></div>
+  </div>
+</div>
+<div class="overlay" id="threadmodal">
+  <div class="modal">
+    <h2>New thread</h2>
+    <p class="sub" id="tm-sub"></p>
+    <div class="body">
+      <div class="field"><label for="tm-task">Task</label><textarea id="tm-task" rows="5" placeholder="What should this thread do? Give it the full picture, it doesn't see the project chat."></textarea></div>
+      <div class="field"><label for="tm-title">Title (optional)</label><input type="text" id="tm-title" maxlength="80" placeholder="Short name shown in the sidebar"></div>
+    </div>
+    <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="tm-start">Start thread</button></div>
   </div>
 </div>
 
@@ -399,6 +563,18 @@ details[open] > summary .chev { transform: rotate(90deg); }
     <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="create-sess">Start session</button></div>
   </div>
 </div>
+<div class="overlay" id="undo">
+  <div class="modal">
+    <h2>Undo</h2>
+    <p class="sub">Put your files back to how they were before a turn. That turn and every later one are removed from the chat too, unless you keep it.</p>
+    <div class="body">
+      <div id="cp-list"></div>
+      <label class="help" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" id="cp-keep"> Keep the chat (undo file changes only)</label>
+      <div class="help" id="cp-note"></div>
+    </div>
+    <div class="foot"><button class="btn" data-close>Close</button></div>
+  </div>
+</div>
 <div class="overlay" id="skills">
   <div class="modal">
     <h2>Skills</h2>
@@ -445,8 +621,10 @@ function showTokenScreen(msg) {
   $("#token-screen").classList.add("open"); setTimeout(() => $("#token-input").focus(), 50);
 }
 const $ = (s) => document.querySelector(s);
-const state = { config: null, sessions: [], current: null, meta: null, running: false, defaultRoot: "", canPick: false, home: "" };
-let live = { text: null, textBuf: "", think: null, thinkBuf: "", tool: null };
+const state = { config: null, sessions: [], projects: [], current: null, meta: null, running: false, defaultRoot: "", canPick: false, home: "",
+  project: null, thread: null, threadMeta: null, collapsed: new Set() };
+try { JSON.parse(localStorage.getItem("anvil-collapsed") || "[]").forEach((id) => state.collapsed.add(id)); } catch {}
+function saveCollapsed() { try { localStorage.setItem("anvil-collapsed", JSON.stringify([...state.collapsed])); } catch {} }
 
 // ---------- api ----------
 async function api(path, opts = {}) {
@@ -523,25 +701,12 @@ function md(src) {
 }
 
 // ---------- transcript rendering ----------
-const T = () => $("#transcript");
 const ICON_CHEV = '<svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 6 6 6-6 6"/></svg>';
 const TOOL_NAMES = { browser_open: "Open page", browser_snapshot: "Read page", browser_click: "Click", browser_type: "Type",
   browser_select: "Select", browser_press: "Press key", browser_scroll: "Scroll", browser_history: "Navigate",
-  browser_screenshot: "Screenshot", browser_tabs: "Tabs", browser_wait: "Wait", load_skill: "Skill", read_file: "Read", write_file: "Write", edit_file: "Edit", bash: "Bash", glob: "Glob", grep: "Search", list_dir: "List", web_search: "Web search" };
-let stickBottom = true;
-$("#scroller").addEventListener("scroll", (e) => { const s = e.target; stickBottom = s.scrollHeight - s.scrollTop - s.clientHeight < 80; });
-function scrollDown(force) { if (force || stickBottom) { const s = $("#scroller"); s.scrollTop = s.scrollHeight; } }
-function add(el) { removeWorking(); T().appendChild(el); if (state.running) showWorking(); scrollDown(); return el; }
+  browser_screenshot: "Screenshot", browser_tabs: "Tabs", browser_wait: "Wait", load_skill: "Skill", read_file: "Read", write_file: "Write", edit_file: "Edit", bash: "Bash", glob: "Glob", grep: "Search", list_dir: "List", web_search: "Web search",
+  start_thread: "Thread", list_threads: "Threads", message_thread: "Message thread", update_checklist: "Checklist", set_status: "Status", remember: "Memory", ask_user: "Question" };
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
-
-function addUser(text) { const m = el("div", "msg user"); m.appendChild(el("div", "bubble")).textContent = text; return add(m); }
-function addAssistant(text) { const m = el("div", "msg md", md(text)); return add(m); }
-function addThinking(text, isLive) {
-  const d = el("details", "thinking" + (isLive ? " live" : ""));
-  d.innerHTML = `<summary>${ICON_CHEV}<span class="lbl">${isLive ? "Thinking…" : "Thought process"}</span></summary><div class="body"></div>`;
-  d.querySelector(".body").textContent = text; return add(d);
-}
-function addNotice(text, isErr) { const n = el("div", "notice" + (isErr ? " error" : "")); n.textContent = text; return add(n); }
 
 function diffHtml(text) {
   return '<div class="diff">' + text.split("\n").map((l) => {
@@ -568,20 +733,9 @@ function toolSummary(name, result, isErr) {
   if (name === "read_file") return `${n} lines`;
   if (name === "glob" || name === "grep") return result.startsWith("No ") ? "no matches" : `${n} results`;
   if (name === "bash") { const m = result.match(/\[exit code (\d+)\]\s*$/); return m ? (m[1] === "0" ? "done" : `exit ${m[1]}`) : ""; }
+  if (name === "start_thread") return "open ›";
+  if (name === "update_checklist") { const m = result.match(/\((\d+\/\d+) done\)/); return m ? m[1] : ""; }
   return "";
-}
-function addTool(item) {
-  const d = el("details", "tool");
-  d.innerHTML = `<summary><span class="status run"></span><span class="name"></span><span class="arg"></span><span class="meta"></span>${ICON_CHEV}</summary><div class="out"></div>`;
-  d.querySelector(".name").textContent = TOOL_NAMES[item.name] || item.name;
-  d.querySelector(".arg").textContent = item.label || "";
-  d._item = item;
-  const dh = argDiff(item.name, item.args);
-  if (dh) { d.querySelector(".out").innerHTML = dh; if (item.name === "edit_file") d.open = true; }
-  add(d);
-  if (item.result != null) setToolResult(d, item.result, item.is_error);
-  if (item.image) addShot(d, item.image);
-  return d;
 }
 function addShot(d, src) { const img = el("img", "shot"); img.src = src; img.alt = "Browser screenshot"; d.querySelector(".out").prepend(img); d.open = true; }
 function setToolResult(d, result, isErr) {
@@ -591,6 +745,11 @@ function setToolResult(d, result, isErr) {
   const hasDiff = !!out.querySelector(".diff");
   if (!hasDiff || isErr) { const pre = el("pre", isErr ? "err" : ""); pre.textContent = result; out.appendChild(pre); }
   if (isErr && d._item.name !== "bash") d.open = true;
+  const m = d._item.name === "start_thread" && !isErr && result.match(/^Started thread (\S+):/);
+  if (m) {  // a thread card in the project chat opens that thread in the side panel
+    d.classList.add("thread-link"); d.dataset.thread = m[1];
+    d.querySelector("summary").onclick = (e) => { e.preventDefault(); openThread(m[1]); };
+  }
 }
 
 function addConfirm(ev) {
@@ -598,15 +757,15 @@ function addConfirm(ev) {
   const c = el("div", "confirm" + (dangers.length ? " danger" : ""));
   const isBash = ev.name === "bash";
   c.innerHTML = `<div class="head"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
-    <span>${isBash ? "Run this command?" : ev.name.startsWith("browser_") ? "Allow this browser action?" : ev.name === "write_file" ? "Create or overwrite this file?" : "Make this edit?"}</span><span class="p"></span></div>
+    <span>${isBash ? "Run this command?" : ev.name.startsWith("browser_") ? "Allow this browser action?" : ev.name === "write_file" ? "Create or overwrite this file?" : ev.name.startsWith("mcp__") ? "Allow this connector action?" : "Make this edit?"}</span><span class="p"></span></div>
     <div class="preview"></div>
     ${dangers.length ? `<div class="warn"><strong>Destructive: Anvil asks every time for this.</strong><ul>${dangers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div>` : ""}
     <div class="actions">${dangers.length
       ? '<button class="btn danger" data-d="yes">Allow once</button><button class="btn primary" data-d="no">Deny <kbd>↵</kbd></button>'
-      : `<button class="btn primary" data-d="yes">Allow <kbd>↵</kbd></button><button class="btn" data-d="always">Always allow ${isBash ? "commands" : ev.name.startsWith("browser_") ? ({ browser_click: "clicks", browser_type: "typing", browser_select: "choices", browser_press: "key presses" }[ev.name] || "this action") : "edits"} this session</button><button class="btn" data-d="no">Deny</button>`}
+      : `<button class="btn primary" data-d="yes">Allow <kbd>↵</kbd></button><button class="btn" data-d="always">Always allow ${isBash ? "commands" : ev.name.startsWith("browser_") ? ({ browser_click: "clicks", browser_type: "typing", browser_select: "choices", browser_press: "key presses" }[ev.name] || "this action") : ev.name.startsWith("mcp__") ? "this tool" : "edits"} this session</button><button class="btn" data-d="no">Deny</button>`}
     <input placeholder="Or tell Anvil what to do instead, then press Enter"></div>`;
   c.querySelector(".p").textContent = isBash ? "" : ev.label;
-  const isBrowser = ev.name.startsWith("browser_");
+  const isBrowser = ev.name.startsWith("browser_") || ev.name.startsWith("mcp__");
   c.querySelector(".preview").innerHTML = isBash ? `<pre>$ ${esc(ev.args.command || "")}</pre>` : isBrowser ? `<pre>${esc(ev.preview || "")}</pre>` : diffHtml(ev.preview || "");
   c.dataset.req = ev.req_id;
   const decide = (d) => { if (c.classList.contains("resolved")) return; c.classList.add("resolved"); api(`/api/sessions/${state.current}/approve`, { method: "POST", body: { req_id: ev.req_id, decision: d } }).catch((e) => toast(e.message)); };
@@ -628,41 +787,165 @@ function renderItems(items) {
     else if (it.kind === "assistant") addAssistant(it.text);
     else if (it.kind === "thinking") addThinking(it.text, false);
     else if (it.kind === "tool") addTool(it);
+// One transcript: the main column, or the thread side panel. Each has its own live stream state.
+class View {
+  constructor(tEl, scEl, opts = {}) {
+    this.t = tEl; this.sc = scEl; this.opts = opts; this.sid = null; this.running = false; this.stick = true;
+    this.live = { text: null, textBuf: "", think: null, thinkBuf: "", tool: null }; this.raf = false;
+    scEl.addEventListener("scroll", () => { this.stick = scEl.scrollHeight - scEl.scrollTop - scEl.clientHeight < 80; });
   }
-  updateEmpty(); scrollDown(true);
+  scrollDown(force) { if (force || this.stick) this.sc.scrollTop = this.sc.scrollHeight; }
+  add(e) { this.removeWorking(); this.t.appendChild(e); if (this.running) this.showWorking(); this.scrollDown(); return e; }
+  addUser(text) { const m = el("div", "msg user"); m.appendChild(el("div", "bubble")).textContent = text; return this.add(m); }
+  addAssistant(text) { return this.add(el("div", "msg md", md(text))); }
+  addThinking(text, isLive) {
+    const d = el("details", "thinking" + (isLive ? " live" : ""));
+    d.innerHTML = `<summary>${ICON_CHEV}<span class="lbl">${isLive ? "Thinking…" : "Thought process"}</span></summary><div class="body"></div>`;
+    d.querySelector(".body").textContent = text; return this.add(d);
+  }
+  addNotice(text, isErr) { const n = el("div", "notice" + (isErr ? " error" : "")); n.textContent = text; return this.add(n); }
+  addUpdates(text) {
+    const u = el("div", "updates", '<div class="lbl">Thread updates</div>');
+    text.split("\n").forEach((l) => { const r = el("div", "line"); r.textContent = l; u.appendChild(r); });
+    return this.add(u);
+  }
+  addTool(item) {
+    const d = el("details", "tool");
+    d.innerHTML = `<summary><span class="status run"></span><span class="name"></span><span class="arg"></span><span class="meta"></span>${ICON_CHEV}</summary><div class="out"></div>`;
+    d.querySelector(".name").textContent = TOOL_NAMES[item.name] || item.name;
+    d.querySelector(".arg").textContent = item.label || "";
+    d._item = item;
+    const dh = argDiff(item.name, item.args);
+    if (dh) { d.querySelector(".out").innerHTML = dh; if (item.name === "edit_file") d.open = true; }
+    this.add(d);
+    if (item.result != null) setToolResult(d, item.result, item.is_error);
+    if (item.image) addShot(d, item.image);
+    return d;
+  }
+  decide(card, reqId, decision) {
+    if (card.classList.contains("resolved")) return; card.classList.add("resolved");
+    api(`/api/sessions/${this.sid}/approve`, { method: "POST", body: { req_id: reqId, decision } }).catch((e) => toast(e.message));
+  }
+  addConfirm(ev) {
+    const dangers = ev.dangers || [];
+    const c = el("div", "confirm" + (dangers.length ? " danger" : ""));
+    const isBash = ev.name === "bash";
+    c.innerHTML = `<div class="head"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <span>${isBash ? "Run this command?" : ev.name.startsWith("browser_") ? "Allow this browser action?" : ev.name === "write_file" ? "Create or overwrite this file?" : "Make this edit?"}</span><span class="p"></span></div>
+      <div class="preview"></div>
+      ${dangers.length ? `<div class="warn"><strong>Destructive: Anvil asks every time for this.</strong><ul>${dangers.map((d) => `<li>${esc(d)}</li>`).join("")}</ul></div>` : ""}
+      <div class="actions">${dangers.length
+        ? '<button class="btn danger" data-d="yes">Allow once</button><button class="btn primary" data-d="no">Deny <kbd>↵</kbd></button>'
+        : `<button class="btn primary" data-d="yes">Allow <kbd>↵</kbd></button><button class="btn" data-d="always">Always allow ${isBash ? "commands" : ev.name.startsWith("browser_") ? ({ browser_click: "clicks", browser_type: "typing", browser_select: "choices", browser_press: "key presses" }[ev.name] || "this action") : "edits"} this session</button><button class="btn" data-d="no">Deny</button>`}
+      <input placeholder="Or tell Anvil what to do instead, then press Enter"></div>`;
+    c.querySelector(".p").textContent = isBash ? "" : ev.label;
+    const isBrowser = ev.name.startsWith("browser_");
+    c.querySelector(".preview").innerHTML = isBash ? `<pre>$ ${esc(ev.args.command || "")}</pre>` : isBrowser ? `<pre>${esc(ev.preview || "")}</pre>` : diffHtml(ev.preview || "");
+    c.dataset.req = ev.req_id;
+    c.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => this.decide(c, ev.req_id, b.dataset.d));
+    const inp = c.querySelector("input");
+    inp.onkeydown = (e) => { if (e.key === "Enter" && inp.value.trim()) this.decide(c, ev.req_id, inp.value.trim()); };
+    this.add(c); this.scrollDown(true);
+    if (this.opts.focusCards !== false) setTimeout(() => c.querySelector(".btn.primary").focus(), 30);
+    return c;
+  }
+  addDecision(ev) {
+    const c = el("div", "decision");
+    c.innerHTML = `<div class="q"><span class="tag">Your call</span><span class="qt"></span></div><div class="opts"></div>
+      <input placeholder="Or type a different answer, then press Enter">`;
+    c.querySelector(".qt").textContent = ev.question;
+    const box = c.querySelector(".opts");
+    (ev.options || []).forEach((o, i) => {
+      const b = el("button", "opt" + (i === ev.recommended ? " rec" : ""));
+      b.innerHTML = `<span class="key">${String.fromCharCode(65 + i)}</span><span class="txt"><span class="l"></span><span class="d"></span></span>${i === ev.recommended ? '<span class="badge">Recommended</span>' : ""}`;
+      b.querySelector(".l").textContent = o.label; b.querySelector(".d").textContent = o.detail || "";
+      b.onclick = () => this.decide(c, ev.req_id, o.label);
+      box.appendChild(b);
+    });
+    c.dataset.req = ev.req_id;
+    const inp = c.querySelector("input");
+    inp.onkeydown = (e) => { if (e.key === "Enter" && inp.value.trim()) this.decide(c, ev.req_id, inp.value.trim()); };
+    this.add(c); this.scrollDown(true);
+    return c;
+  }
+  showWorking() { if (!this.t.querySelector(".working")) { this.t.appendChild(el("div", "working", '<div class="spinner"></div><span>Working…</span>')); this.scrollDown(); } }
+  removeWorking() { const w = this.t.querySelector(".working"); if (w) w.remove(); }
+  setRunning(r) { this.running = r; if (r) this.showWorking(); else this.removeWorking(); if (this.opts.onRunning) this.opts.onRunning(r); }
+  render(items, pending) {
+    this.t.innerHTML = ""; this.live = { text: null, textBuf: "", think: null, thinkBuf: "", tool: null };
+    for (const it of items) {
+      if (it.kind === "user") this.addUser(it.text);
+      else if (it.kind === "assistant") this.addAssistant(it.text);
+      else if (it.kind === "thinking") this.addThinking(it.text, false);
+      else if (it.kind === "tool") this.addTool(it);
+      else if (it.kind === "updates") this.addUpdates(it.text);
+    }
+    for (const ev of pending || []) { if (ev.type === "confirm") this.addConfirm(ev); else if (ev.type === "decision") this.addDecision(ev); }
+    if (this.opts.onChange) this.opts.onChange(); this.scrollDown(true);
+  }
+  flushText() { this.raf = false; if (this.live.text) { this.live.text.innerHTML = md(this.live.textBuf); this.scrollDown(); } }
+  onEvent(ev) {
+    const live = this.live;
+    switch (ev.type) {
+      case "turn_start": this.setRunning(true); break;
+      case "text_start": live.textBuf = ""; live.text = this.addAssistant(""); break;
+      case "text_delta": if (!live.text) live.text = this.addAssistant(""); live.textBuf += ev.text; if (!this.raf) { this.raf = true; requestAnimationFrame(() => this.flushText()); } break;
+      case "text_end": this.flushText(); live.text = null; break;
+      case "thinking_delta":
+        if (!live.think) { live.thinkBuf = ""; live.think = this.addThinking("", true); }
+        live.thinkBuf += ev.text; live.think.querySelector(".body").textContent = live.thinkBuf; this.scrollDown(); break;
+      case "thinking_end": if (live.think) { live.think.classList.remove("live"); live.think.querySelector(".lbl").textContent = "Thought process"; } live.think = null; break;
+      case "stream_aborted": if (live.think) live.think.classList.remove("live"); live.text = null; live.think = null; break;
+      case "tool_start": live.tool = this.addTool({ name: ev.name, label: ev.label, args: ev.args, result: null }); break;
+      case "tool_result":
+        if (!(live.tool && live.tool._item.name === ev.name && !live.tool._done)) {
+          // the card may have been drawn from saved history (panel opened mid-call): fill that one in
+          const open = [...this.t.querySelectorAll(".tool")].reverse().find((d) => d._item && d._item.name === ev.name && d._item.result == null && !d._done);
+          if (open) live.tool = open;
+        }
+        if (live.tool && live.tool._item.name === ev.name && !live.tool._done) { setToolResult(live.tool, ev.result, ev.is_error); live.tool._done = true; }
+        else { const d = this.addTool({ name: ev.name, label: ev.label, args: ev.args, result: ev.result, is_error: ev.is_error }); d._done = true; }
+        live.tool = null; break;
+      case "tool_image": { const cards = this.t.querySelectorAll(".tool"); if (cards.length) addShot(cards[cards.length - 1], ev.image); this.scrollDown(); break; }
+      case "confirm": this.addConfirm(ev); break;
+      case "decision": this.addDecision(ev); break;
+      case "confirm_done": { const c = this.t.querySelector(`[data-req="${ev.req_id}"]`); if (c) c.remove(); break; }
+      case "notice": this.addNotice(ev.text); break;
+      case "error": this.addNotice(ev.text, true); break;
+      case "interrupted": this.addNotice("Stopped. Tell Anvil what to do instead, or ask it to continue."); break;
+      case "turn_end": this.setRunning(false); break;
+    }
+    if (this.opts.onChange) this.opts.onChange();
+  }
 }
+const mainView = new View($("#transcript"), $("#scroller"), { onRunning: (r) => setRunning(r), onChange: () => updateEmpty() });
+const threadView = new View($("#tp-transcript"), $("#tp-scroller"), { focusCards: false, onRunning: (r) => setThreadRunning(r) });
+const T = () => $("#transcript");
 function updateEmpty() { const has = T().children.length > 0; $("#empty").style.display = has ? "none" : "block"; T().style.display = has ? "block" : "none"; }
 
 // ---------- live events ----------
-let rafPending = false;
-function flushText() { rafPending = false; if (live.text) { live.text.innerHTML = md(live.textBuf); scrollDown(); } }
+function mergeRow(meta) {
+  if (!meta || !meta.id) return;
+  const keys = ["title", "root", "running", "project_id", "kind", "parent", "status", "checklist", "summary"];
+  let row = state.sessions.find((x) => x.id === meta.id);
+  if (!row) { row = { id: meta.id, updated: new Date().toISOString() }; state.sessions.unshift(row); }
+  keys.forEach((k) => { if (k in meta) row[k] = meta[k]; });
+}
 function onEvent(ev) {
   const s = state.sessions.find((x) => x.id === ev.session);
   if (ev.type === "turn_start" && s) { s.running = true; renderSessions(); }
-  if (ev.type === "turn_end" && s) { s.running = false; renderSessions(); }
-  if (ev.session !== state.current) return;
-  switch (ev.type) {
-    case "turn_start": setRunning(true); break;
-    case "text_start": live.textBuf = ""; live.text = addAssistant(""); break;
-    case "text_delta": if (!live.text) live.text = addAssistant(""); live.textBuf += ev.text; if (!rafPending) { rafPending = true; requestAnimationFrame(flushText); } break;
-    case "text_end": flushText(); live.text = null; break;
-    case "thinking_delta":
-      if (!live.think) { live.thinkBuf = ""; live.think = addThinking("", true); }
-      live.thinkBuf += ev.text; live.think.querySelector(".body").textContent = live.thinkBuf; scrollDown(); break;
-    case "thinking_end": if (live.think) { live.think.classList.remove("live"); live.think.querySelector(".lbl").textContent = "Thought process"; } live.think = null; break;
-    case "stream_aborted": if (live.think) live.think.classList.remove("live"); live.text = null; live.think = null; break;
-    case "tool_start": live.tool = addTool({ name: ev.name, label: ev.label, args: ev.args, result: null }); break;
-    case "tool_result":
-      if (live.tool && live.tool._item.name === ev.name && !live.tool._done) { setToolResult(live.tool, ev.result, ev.is_error); live.tool._done = true; }
-      else { const d = addTool({ name: ev.name, label: ev.label, args: ev.args, result: ev.result, is_error: ev.is_error }); d._done = true; }
-      live.tool = null; break;
-    case "tool_image": { const cards = T().querySelectorAll(".tool"); if (cards.length) addShot(cards[cards.length - 1], ev.image); scrollDown(); break; }
-    case "confirm": addConfirm(ev); break;
-    case "confirm_done": { const c = T().querySelector(`.confirm[data-req="${ev.req_id}"]`); if (c) c.remove(); break; }
-    case "notice": addNotice(ev.text); break;
-    case "error": addNotice(ev.text, true); break;
-    case "interrupted": addNotice("Stopped. Tell Anvil what to do instead, or ask it to continue."); break;
-    case "turn_end": setRunning(false); setMeta(ev.meta); loadState(); break;
+  if (ev.type === "turn_end") { mergeRow(ev.meta); renderSessions(); }
+  if (ev.type === "session_update") {
+    mergeRow(ev.meta); renderSessions();
+    if (ev.session === state.thread) setThreadMeta(ev.meta);
+  }
+  if (ev.session === state.current) {
+    mainView.onEvent(ev);
+    if (ev.type === "turn_end") { setMeta(ev.meta); loadState(); }
+  }
+  if (ev.session === state.thread) {
+    threadView.onEvent(ev);
+    if (ev.type === "turn_end") setThreadMeta(ev.meta);
   }
 }
 function connect() {
@@ -676,9 +959,15 @@ function base(p) { return (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() 
 function fmtTok(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n); }
 function setMeta(meta) {
   state.meta = meta; if (!meta) return;
-  $("#title").textContent = meta.title || "New session";
-  const root = meta.root; $("#folder-chip").textContent = "📁 " + base(root); $("#folder-chip").title = root;
+  const proj = meta.kind === "chat" ? state.projects.find((p) => p.id === meta.project_id) : null;
+  document.body.classList.toggle("in-project", !!proj);
+  $("#title").textContent = proj ? proj.name : (meta.title || "New session");
+  const root = meta.root; $("#folder-chip").textContent = "📁 " + base(root); $("#folder-chip").title = proj ? "Project settings" : root;
   $("#empty-folder").textContent = "📁 " + root;
+  $("#empty h1").textContent = proj ? proj.name : "What should we build?";
+  $("#empty p").textContent = proj ? "This is the project chat. Ask anything, or describe work and Anvil splits it into threads that run in parallel. Threads show up in the sidebar and open on the right."
+                                   : "Anvil reads your code, makes edits and runs commands in your project folder. You approve changes as it goes.";
+  $("#input").placeholder = proj ? "Ask a question or start a task in this project…" : "Ask Anvil to build, fix or explain something…";
   $("#mode").value = meta.mode; $("#mode").className = "select " + meta.mode;
   const order = ["ask", "edits", "auto"]; const cap = order.indexOf(meta.ceiling || "auto");
   [...$("#mode").options].forEach((o) => { o.disabled = order.indexOf(o.value) > cap; o.title = o.disabled ? "Locked by this machine's permission policy" : ""; });
@@ -693,26 +982,71 @@ function setRunning(r) {
   b.classList.toggle("stop", r); b.title = r ? "Stop (Esc)" : "Send (Enter)";
   b.innerHTML = r ? '<svg width="12" height="12" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg>'
                   : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
-  if (r) showWorking(); else removeWorking();
 }
+const STATUS_LABEL = { working: "Working", needs_you: "Needs you", done: "Done", failed: "Failed", stopped: "Stopped" };
+const ICON_DEL = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg>';
+const ICON_PLUS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+function progress(cl) { if (!cl || !cl.length) return ""; return `${cl.filter((i) => i.state === "done").length}/${cl.length}`; }
+function threadsOf(pid) { return state.sessions.filter((s) => s.project_id === pid && s.kind === "thread"); }
+function sideLabel(text) { return el("div", "section-label", esc(text)); }
 function renderSessions() {
   const q = $("#search").value.toLowerCase(); const box = $("#sessions"); box.innerHTML = "";
-  const list = state.sessions.filter((s) => !q || (s.title + " " + s.root).toLowerCase().includes(q));
-  if (!list.length) { box.innerHTML = `<div style="padding:10px 12px;color:var(--faint);font-size:13px">${q ? "No matches" : "No sessions yet"}</div>`; return; }
+  const match = (t) => !q || t.toLowerCase().includes(q);
+  // projects, each with its threads
+  const projects = state.projects.filter((p) => match(p.name + " " + p.root) || threadsOf(p.id).some((t) => match(t.title)));
+  if (projects.length || !q) box.appendChild(sideLabel("Projects"));
+  if (!projects.length && !q) box.appendChild(el("div", "side-empty", 'Group work by folder. <a href="#" id="side-new-proj">New project</a>'));
+  for (const p of projects) {
+    const threads = threadsOf(p.id).filter((t) => !q || match(t.title) || match(p.name));
+    const needs = threads.filter((t) => t.status === "needs_you").length, busy = threads.filter((t) => t.status === "working").length;
+    const open = !state.collapsed.has(p.id) || !!q;
+    const row = el("div", "proj" + (state.project === p.id ? " active" : "") + (open ? " open" : ""));
+    row.dataset.project = p.id;
+    row.innerHTML = `<button class="icon-btn tog" title="Show threads">${ICON_CHEV}</button><div class="txt"><div class="t"></div><div class="f"></div></div>
+      ${needs ? `<span class="pill needs_you" title="Threads waiting on you">${needs}</span>` : busy ? '<span class="dot-run" title="Threads working"></span>' : ""}
+      <button class="icon-btn add" title="New thread">${ICON_PLUS}</button>`;
+    row.querySelector(".t").textContent = p.name; row.querySelector(".f").textContent = base(p.root);
+    row.onclick = () => { closeSideMobile(); openProject(p.id); };
+    row.querySelector(".tog").onclick = (e) => { e.stopPropagation(); if (state.collapsed.has(p.id)) state.collapsed.delete(p.id); else state.collapsed.add(p.id); saveCollapsed(); renderSessions(); };
+    row.querySelector(".add").onclick = (e) => { e.stopPropagation(); openNewThread(p.id); };
+    box.appendChild(row);
+    if (!open) continue;
+    for (const t of threads) {
+      const r = el("div", "thr" + (state.thread === t.id ? " active" : ""));
+      r.dataset.thread = t.id;
+      const st = t.status || "stopped";
+      r.innerHTML = `<span class="sdot ${st}" title="${STATUS_LABEL[st] || st}"></span><span class="t"></span><span class="pg"></span><button class="icon-btn del" title="Delete thread">${ICON_DEL}</button>`;
+      r.querySelector(".t").textContent = t.title; r.querySelector(".pg").textContent = st === "needs_you" ? "needs you" : progress(t.checklist);
+      r.onclick = () => { closeSideMobile(); openThread(t.id); };
+      r.querySelector(".del").onclick = async (e) => { e.stopPropagation(); if (!confirm(`Delete thread "${t.title}"?`)) return; await api(`/api/sessions/${t.id}`, { method: "DELETE" }); if (state.thread === t.id) closeThread(); await loadState(); };
+      box.appendChild(r);
+    }
+    if (!threads.length) box.appendChild(el("div", "thr empty", "No threads yet"));
+  }
+  // plain sessions
+  const list = state.sessions.filter((s) => !s.project_id && match(s.title + " " + s.root));
+  box.appendChild(sideLabel("Recents"));
+  if (!list.length) { box.appendChild(el("div", "side-empty", q ? "No matches" : "No sessions yet")); }
   for (const s of list) {
     const d = el("div", "sess" + (s.id === state.current ? " active" : ""));
-    d.innerHTML = `${s.running ? '<span class="dot-run"></span>' : ""}<div class="txt"><div class="t"></div><div class="f"></div></div><button class="icon-btn del" title="Delete"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg></button>`;
+    d.innerHTML = `${s.running ? '<span class="dot-run"></span>' : ""}<div class="txt"><div class="t"></div><div class="f"></div></div><button class="icon-btn del" title="Delete">${ICON_DEL}</button>`;
     d.querySelector(".t").textContent = s.title; d.querySelector(".f").textContent = base(s.root);
     d.onclick = () => { closeSideMobile(); openSession(s.id); };
     d.querySelector(".del").onclick = async (e) => { e.stopPropagation(); if (!confirm(`Delete "${s.title}"?`)) return; await api(`/api/sessions/${s.id}`, { method: "DELETE" }); if (s.id === state.current) state.current = null; await loadState(); if (!state.current) await newSession(state.defaultRoot); };
     box.appendChild(d);
   }
+  const np = $("#side-new-proj"); if (np) np.onclick = (e) => { e.preventDefault(); openProjectModal(null); };
 }
 async function loadState() { applyState(await api("/api/state")); }
 function applyState(st) {
   state.config = st.config; state.sessions = st.sessions; state.defaultRoot = st.default_root; state.canPick = st.can_pick_folder; state.home = st.home;
   if (!state.sessions.find((s) => s.id === state.current) && state.current && state.meta) state.sessions.unshift({ id: state.current, title: state.meta.title, root: state.meta.root, running: state.running });
+async function loadState() {
+  const st = await api("/api/state");
+  state.config = st.config; state.sessions = st.sessions; state.projects = st.projects || []; state.defaultRoot = st.default_root; state.canPick = st.can_pick_folder; state.home = st.home;
+  if (!state.sessions.find((s) => s.id === state.current) && state.current && state.meta && !state.meta.project_id) state.sessions.unshift({ id: state.current, title: state.meta.title, root: state.meta.root, running: state.running });
   renderSessions(); applyConfig();
+  if (state.project && state.meta && state.meta.kind === "chat") setMeta(state.meta);
 }
 function applyConfig() {
   const c = state.config; if (!c) return;
@@ -722,13 +1056,112 @@ function applyConfig() {
   const cur = isOA ? (c.reasoning_effort || "off") : c.effort;
   eff.innerHTML = opts.map((o) => `<option value="${o}" ${o === cur ? "selected" : ""}>${isOA ? (o === "off" ? "Reasoning: default" : "Reasoning: " + o) : "Effort: " + o}</option>`).join("");
 }
+function showMain(d) {
+  mainView.sid = d.meta.id; state.current = d.meta.id; setMeta(d.meta);
+  mainView.render(d.items || [], d.pending); mainView.setRunning(d.meta.running); renderSessions(); $("#input").focus(); loadSkills();
+}
 async function openSession(id) {
   const d = await api(`/api/sessions/${id}`);
-  state.current = id; setMeta(d.meta); renderItems(d.items); setRunning(d.meta.running); renderSessions(); $("#input").focus(); loadSkills();
+  if (d.meta.kind === "thread") return openThread(id);
+  if (d.meta.kind !== "chat") { state.project = null; closeThread(); }
+  showMain(d);
 }
 async function newSession(root) {
   const d = await api("/api/sessions", { method: "POST", body: { root } });
-  state.current = d.meta.id; setMeta(d.meta); renderItems([]); setRunning(false); renderSessions(); $("#input").focus(); loadSkills();
+  state.project = null; closeThread(); showMain(d);
+}
+
+// ---------- projects & threads ----------
+const currentProject = () => state.projects.find((p) => p.id === state.project);
+async function openProject(pid) {
+  const d = await api(`/api/projects/${pid}/chat`, { method: "POST" });
+  const switching = state.project !== pid;
+  state.project = pid;
+  if (switching) closeThread();
+  showMain(d);
+}
+async function openThread(tid) {
+  const d = await api(`/api/sessions/${tid}`);
+  if (d.meta.project_id && (state.project !== d.meta.project_id || !state.meta || state.meta.kind !== "chat")) await openProject(d.meta.project_id);
+  state.thread = tid; threadView.sid = tid;
+  mergeRow(d.meta);  // the sidebar may not have seen this thread's latest status event yet
+  setThreadMeta(d.meta); threadView.render(d.items, d.pending); threadView.setRunning(d.meta.running);
+  document.body.classList.add("panel-open"); renderSessions();
+  if (!isMobile()) $("#tp-input").focus();
+}
+function closeThread() { state.thread = null; state.threadMeta = null; threadView.sid = null; document.body.classList.remove("panel-open"); renderSessions(); }
+function setThreadMeta(meta) {
+  state.threadMeta = meta; if (!meta) return;
+  $("#tp-title").textContent = meta.title || "Thread"; $("#tp-title").title = meta.title || "";
+  const st = meta.status || "stopped"; const pill = $("#tp-status");
+  pill.className = "pill " + st; pill.textContent = STATUS_LABEL[st] || st;
+  const box = $("#tp-check"); const cl = meta.checklist || [];
+  box.style.display = cl.length ? "block" : "none";
+  const doneN = cl.filter((i) => i.state === "done").length;
+  box.innerHTML = `<div class="ch-head"><span>Progress</span><span class="pg">${doneN}/${cl.length}</span></div><div class="bar"><span style="width:${cl.length ? Math.round(doneN / cl.length * 100) : 0}%"></span></div>`;
+  const collapsed = cl.length > 6 && !box._expanded;
+  cl.forEach((i, n) => {
+    if (collapsed && n >= 5) return;
+    const r = el("div", "ci " + i.state, `<span class="mk">${i.state === "done" ? "✓" : i.state === "doing" ? "" : ""}</span><span class="tx"></span>`);
+    r.querySelector(".tx").textContent = i.text; box.appendChild(r);
+  });
+  if (collapsed) { const more = el("button", "more", `Show ${cl.length - 5} more`); more.onclick = () => { box._expanded = true; setThreadMeta(state.threadMeta); }; box.appendChild(more); }
+  $("#tp-queued").textContent = meta.queued ? `${meta.queued} message${meta.queued > 1 ? "s" : ""} queued` : "";
+}
+function setThreadRunning(r) { $("#tp-stop").style.display = r ? "" : "none"; }
+async function sendThread() {
+  const inp = $("#tp-input"); const text = inp.value.trim(); if (!text || !state.thread) return;
+  inp.value = ""; inp.style.height = "auto";
+  if (!state.config.key_set) { openSettings(); toast("Add your API key first"); return; }
+  threadView.addUser(text); threadView.scrollDown(true);
+  try {
+    const d = await api(`/api/sessions/${state.thread}/send`, { method: "POST", body: { text, queue: true } });
+    if (d.meta && d.meta.queued) { toast("Queued: it runs after the thread's current step"); setThreadMeta(d.meta); }
+  } catch (e) { threadView.addNotice(e.message, true); }
+}
+function openProjectModal(pid) {
+  const p = pid ? state.projects.find((x) => x.id === pid) : null;
+  $("#pm-title").textContent = p ? "Project settings" : "New project";
+  $("#pm-sub").textContent = p ? "Instructions and memory are shared by the project chat and every thread." : "A project is a folder with its own chat, instructions and memory. Its chat can start threads that work in parallel.";
+  $("#pm-name").value = p ? p.name : ""; $("#pm-path").value = p ? p.root : (state.meta ? state.meta.root : state.defaultRoot);
+  $("#pm-instr").value = p ? p.instructions : ""; $("#pm-mem").value = p ? p.memory : "";
+  $("#pm-mem-wrap").style.display = p ? "block" : "none"; $("#pm-delete").style.display = p ? "" : "none";
+  $("#pm-browse").style.display = state.canPick ? "" : "none";
+  $("#pm-save").textContent = p ? "Save" : "Create project";
+  $("#projmodal").dataset.pid = pid || "";
+  $("#projmodal").classList.add("open"); setTimeout(() => $("#pm-name").focus(), 50);
+}
+async function saveProjectModal() {
+  const pid = $("#projmodal").dataset.pid;
+  const body = { name: $("#pm-name").value.trim(), root: $("#pm-path").value.trim(), instructions: $("#pm-instr").value };
+  if (!body.name) return toast("Give the project a name");
+  if (pid) body.memory = $("#pm-mem").value;
+  try {
+    const d = await api(pid ? `/api/projects/${pid}` : "/api/projects", { method: "POST", body });
+    $("#projmodal").classList.remove("open"); await loadState();
+    if (!pid) await openProject(d.project.id); else toast("Project saved");
+  } catch (e) { toast(e.message); }
+}
+async function deleteProject() {
+  const pid = $("#projmodal").dataset.pid; const p = state.projects.find((x) => x.id === pid); if (!p) return;
+  if (!confirm(`Delete project "${p.name}" with its chat and threads? Files in the folder are not touched.`)) return;
+  await api(`/api/projects/${pid}`, { method: "DELETE" }); $("#projmodal").classList.remove("open");
+  if (state.project === pid) { state.project = null; closeThread(); await loadState(); await newSession(state.defaultRoot); } else await loadState();
+}
+function openNewThread(pid) {
+  $("#threadmodal").dataset.pid = pid; const p = state.projects.find((x) => x.id === pid);
+  $("#tm-sub").textContent = `Runs in the background in ${p ? p.name : "this project"}. You'll see its checklist and result here.`;
+  $("#tm-title").value = ""; $("#tm-task").value = "";
+  $("#threadmodal").classList.add("open"); setTimeout(() => $("#tm-task").focus(), 50);
+}
+async function startThreadFromModal() {
+  const pid = $("#threadmodal").dataset.pid; const task = $("#tm-task").value.trim();
+  if (!task) return toast("Describe the task");
+  if (!state.config.key_set) { openSettings(); toast("Add your API key first"); return; }
+  try {
+    const d = await api(`/api/projects/${pid}/threads`, { method: "POST", body: { task, title: $("#tm-title").value.trim() } });
+    $("#threadmodal").classList.remove("open"); mergeRow(d.meta); await openThread(d.meta.id);
+  } catch (e) { toast(e.message); }
 }
 
 let ready = null;  // resolves when the first session is loaded
@@ -738,12 +1171,12 @@ async function send() {
   const inp = $("#input"); const text = inp.value.trim(); if (!text) return;
   if (!state.config.key_set) { openSettings(); toast("Add your API key first"); return; }
   inp.value = ""; autosize();
-  addUser(text); updateEmpty(); scrollDown(true); setRunning(true);
+  mainView.addUser(text); updateEmpty(); mainView.scrollDown(true); mainView.setRunning(true);
   if (state.meta && state.meta.title === "New session") { state.meta.title = text.split("\n")[0].slice(0, 80); $("#title").textContent = state.meta.title; }
-  if (!state.sessions.find((s) => s.id === state.current)) state.sessions.unshift({ id: state.current, title: state.meta.title, root: state.meta.root, running: true });
+  if (!state.meta.project_id && !state.sessions.find((s) => s.id === state.current)) state.sessions.unshift({ id: state.current, title: state.meta.title, root: state.meta.root, running: true });
   renderSessions();
   try { await api(`/api/sessions/${state.current}/send`, { method: "POST", body: { text } }); }
-  catch (e) { setRunning(false); addNotice(e.message, true); }
+  catch (e) { mainView.setRunning(false); mainView.addNotice(e.message, true); }
 }
 function autosize() { const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(i.scrollHeight, 260) + "px"; }
 
@@ -920,10 +1353,23 @@ $("#input").addEventListener("keydown", (e) => {
 $("#input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!state.running) send(); } });
 $("#send").onclick = send;
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { const o = document.querySelector(".overlay.open"); if (o) { o.classList.remove("open"); return; } if (state.running) send(); }
+  if (e.key === "Escape") { const o = document.querySelector(".overlay.open"); if (o) { o.classList.remove("open"); return; } if (document.activeElement === $("#tp-input") || (isMobile() && state.thread)) { closeThread(); return; } if (state.running) send(); }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); openNew(); }
 });
-$("#new-btn").onclick = openNew; $("#folder-chip").onclick = openNew; $("#empty-folder").onclick = openNew;
+$("#new-proj-btn").onclick = () => openProjectModal(null);
+$("#proj-btn").onclick = () => state.project && openProjectModal(state.project);
+$("#new-thread-btn").onclick = () => state.project && openNewThread(state.project);
+$("#pm-save").onclick = saveProjectModal; $("#pm-delete").onclick = deleteProject;
+$("#pm-name").onkeydown = (e) => { if (e.key === "Enter") saveProjectModal(); };
+$("#pm-browse").onclick = async () => { const d = await api("/api/pick-folder", { method: "POST" }); if (d.path) $("#pm-path").value = d.path; };
+$("#tm-start").onclick = startThreadFromModal;
+$("#tm-task").onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) startThreadFromModal(); };
+$("#tp-close").onclick = closeThread;
+$("#tp-stop").onclick = () => state.thread && api(`/api/sessions/${state.thread}/stop`, { method: "POST" }).catch((e) => toast(e.message));
+$("#tp-send").onclick = sendThread;
+$("#tp-input").addEventListener("input", (e) => { const i = e.target; i.style.height = "auto"; i.style.height = Math.min(i.scrollHeight, 180) + "px"; });
+$("#tp-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendThread(); } });
+$("#new-btn").onclick = openNew; $("#folder-chip").onclick = () => (state.meta && state.meta.kind === "chat" ? openProjectModal(state.project) : openNew()); $("#empty-folder").onclick = openNew;
 $("#create-sess").onclick = createFromModal; $("#n-path").onkeydown = (e) => { if (e.key === "Enter") createFromModal(); };
 $("#browse").onclick = async () => { const d = await api("/api/pick-folder", { method: "POST" }); if (d.path) $("#n-path").value = d.path; };
 $("#settings-btn").onclick = openSettings;
@@ -947,6 +1393,36 @@ $("#compact-btn").onclick = async () => {
   try { await api(`/api/sessions/${state.current}/compact`, { method: "POST" }); await openSession(state.current); toast("Conversation compacted"); }
   catch (e) { toast(e.message); } finally { b.textContent = "Compact"; }
 };
+$("#undo-btn").onclick = async () => {
+  if (state.running) return toast("Wait for Anvil to finish first");
+  let d; try { d = await api(`/api/sessions/${state.current}/checkpoints`); } catch (e) { return toast(e.message); }
+  renderCheckpoints(d); $("#undo").classList.add("open");
+};
+function renderCheckpoints(d) {
+  const list = $("#cp-list");
+  list.innerHTML = d.checkpoints.length ? "" : `<div class="help">Nothing to undo yet. Anvil saves a checkpoint before each turn that changes files.</div>`;
+  d.checkpoints.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)";
+    const files = c.files.slice(0, 3).join(", ") + (c.files.length > 3 ? ` +${c.files.length - 3} more` : "");
+    row.innerHTML = `<div style="flex:1;min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.prompt || "(turn)")}</div>`
+      + `<div class="help" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.time)} · ${esc(files)}</div></div>`
+      + `<button class="btn" style="flex:0;white-space:nowrap">${i === 0 ? "Undo last turn" : `Undo ${i + 1} turns`}</button>`;
+    row.querySelector("button").onclick = () => undoTo(c, i + 1);
+    list.appendChild(row);
+  });
+  $("#cp-note").textContent = d.checkpoint_mode === "files" ? "This folder is large and not a git repository, so changes made by shell commands can't be undone, only file edits." : "";
+}
+async function undoTo(c, turns) {
+  const keep = $("#cp-keep").checked;
+  if (!confirm(`Undo ${turns === 1 ? "the last turn" : turns + " turns"}? Files changed since "${c.prompt.slice(0, 60)}" go back to how they were${keep ? "." : ", and those turns leave the chat."}`)) return;
+  try {
+    const d = await api(`/api/sessions/${state.current}/undo`, { method: "POST", body: { n: c.n, keep_chat: keep } });
+    setMeta(d.meta); renderItems(d.items); renderCheckpoints(d);
+    toast(`Restored ${d.undo.files.length} file${d.undo.files.length === 1 ? "" : "s"}`);
+    if (!d.checkpoints.length) $("#undo").classList.remove("open");
+  } catch (e) { toast(e.message); }
+}
 document.querySelectorAll(".suggestions button").forEach((b) => b.onclick = () => { $("#input").value = b.dataset.p; autosize(); send(); });
 function closeSideMobile() { document.body.classList.remove("side-open"); }
 $("#hide-side").onclick = () => { document.body.classList.add("side-hidden"); $("#show-side").style.display = "grid"; };
@@ -955,7 +1431,7 @@ $("#show-side").onclick = () => {
   document.body.classList.remove("side-hidden"); $("#show-side").style.display = "none";
 };
 $("#backdrop").onclick = closeSideMobile;
-["#new-btn", "#settings-btn", "#skills-btn"].forEach((id) => $(id).addEventListener("click", closeSideMobile));
+["#new-btn", "#new-proj-btn", "#settings-btn", "#skills-btn"].forEach((id) => $(id).addEventListener("click", closeSideMobile));
 $("#token-go").onclick = () => {
   const v = $("#token-input").value.trim(); if (!v) return;
   const m = v.match(/[#&?]token=([^&\s]+)/); const tok = m ? decodeURIComponent(m[1]) : v;
@@ -993,5 +1469,6 @@ if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWor
   if (!state.config.key_set) openSettings();
 })();
 </script>
+<script src="extras.js"></script>
 </body>
 </html>
